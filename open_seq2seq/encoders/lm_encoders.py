@@ -4,11 +4,10 @@ RNN-based encoders
 """
 from __future__ import absolute_import, division, print_function
 from __future__ import unicode_literals
-
-import copy
+ 
+import copy 
 
 import tensorflow as tf
-from tensorflow.contrib.cudnn_rnn.python.ops import cudnn_rnn_ops
 
 from open_seq2seq.optimizers.mp_wrapper import mp_regularizer_wrapper
 from open_seq2seq.parts.rnns.utils import single_cell
@@ -23,46 +22,46 @@ class LMEncoder(Encoder):
   @staticmethod
   def get_required_params():
     return dict(Encoder.get_required_params(), **{
-      'vocab_size': int,
-      'emb_size': int,
-      'encoder_layers': int,
-      'encoder_use_skip_connections': bool,
-      'core_cell': None,
-      'core_cell_params': dict,
-      'end_token': int,
-      "batch_size": int,
-      "use_cudnn_rnn": bool,
-      "rnn_type": None
+        'vocab_size': int,
+        'emb_size': int,
+        'encoder_layers': int,
+        'encoder_use_skip_connections': bool,
+        'core_cell': None,
+        'core_cell_params': dict,
+        'end_token': int,
+        "batch_size": int,
+        "use_cudnn_rnn": bool,
+        "rnn_type": None
     })
 
   @staticmethod
   def get_optional_params():
     return dict(Encoder.get_optional_params(), **{
-      'encoder_dp_input_keep_prob': float,
-      'encoder_dp_output_keep_prob': float,
-      "encoder_last_input_keep_prob": float,
-      "encoder_last_output_keep_prob": float,
-      'encoder_emb_keep_prob': float,
-      'variational_recurrent': bool,
-      'time_major': bool,
-      'use_swap_memory': bool,
-      'proj_size': int,
-      'num_groups': int,
-      'num_tokens_gen': int,
-      'fc_use_bias': bool,
-      'seed_tokens': list,
-      'sampling_prob': float,
-      'schedule_learning': bool,
-      'weight_tied': bool,
-      'awd_initializer': bool,
-      "recurrent_keep_prob": float,
-      "input_weight_keep_prob": float,
-      "recurrent_weight_keep_prob": float,
-      "weight_variational": bool,
-      "dropout_seed": int,
-      "num_sampled": int,
-      "fc_dim": int,
-      "use_cell_state": bool,
+        'encoder_dp_input_keep_prob': float,
+        'encoder_dp_output_keep_prob': float,
+        "encoder_last_input_keep_prob": float,
+        "encoder_last_output_keep_prob": float,
+        'encoder_emb_keep_prob': float,
+        'variational_recurrent': bool,
+        'time_major': bool,
+        'use_swap_memory': bool,
+        'proj_size': int,
+        'num_groups': int,
+        'num_tokens_gen': int,
+        'fc_use_bias': bool,
+        'seed_tokens': list,
+        'sampling_prob': float,
+        'schedule_learning': bool,
+        'weight_tied': bool,
+        'awd_initializer': bool,
+        "recurrent_keep_prob": float,
+        "input_weight_keep_prob": float,
+        "recurrent_weight_keep_prob": float,
+        "weight_variational": bool,
+        "dropout_seed": int,
+        "num_sampled": int,
+        "fc_dim": int,
+        "use_cell_state": bool,
     })
 
   def __init__(self, params, model,
@@ -85,14 +84,16 @@ class LMEncoder(Encoder):
       * time_major (optional)
       * use_swap_memory (optional)
       * mode - train or infer
-      * input_weight_keep_prob: keep probability for dropout of W 
+      * input_weight_keep_prob: keep probability for dropout of W
                                 (kernel used to multiply with the input tensor)
       * recurrent_weight_keep_prob: keep probability for dropout of U
-                                  (kernel used to multiply with last hidden state tensor)
+                                  (kernel used to multiply with 
+                                   last hidden state tensor)
       * recurrent_keep_prob: keep probability for dropout
                             when applying tanh for the input transform step
       * weight_variational: whether to keep the same weight dropout mask
-                            at every timestep. This feature is not yet implemented.
+                            at every timestep. 
+                            This feature is not yet implemented.
       * emb_keep_prob: keep probability for dropout of the embedding matrix
       * encoder_dp_input_keep_prob: keep probability for dropout on input of a LSTM cell
                                     in the layer which is not the last layer
@@ -228,11 +229,11 @@ class LMEncoder(Encoder):
 
 
     self._output_layer = tf.layers.Dense(
-      self._fc_dim, 
-      kernel_regularizer=regularizer,
-      kernel_initializer=initializer,
-      use_bias=fc_use_bias,
-      dtype=self._params['dtype']
+        self._fc_dim, 
+        kernel_regularizer=regularizer,
+        kernel_initializer=initializer,
+        use_bias=fc_use_bias,
+        dtype=self._params['dtype']
     )
 
     if self._weight_tied:
@@ -245,7 +246,6 @@ class LMEncoder(Encoder):
 
     if self._use_cell_state:
       last_output_dim = 2 * last_output_dim
-
 
     fake_input = tf.zeros(shape=(1, last_output_dim), 
                           dtype=self._params['dtype'])
@@ -273,25 +273,27 @@ class LMEncoder(Encoder):
       if self._mode == 'train' or self._mode == 'eval':
         if rnn_type == 'lstm' or rnn_type == 'cudnn_lstm':
           rnn_block = tf.contrib.cudnn_rnn.CudnnLSTM(
-                  num_layers=self.params['encoder_layers'],
-                  num_units=self._emb_size, 
-                  dtype=self._params['dtype'],
-                  name="cudnn_rnn"
+              num_layers=self.params['encoder_layers'],
+              num_units=self._emb_size, 
+              dtype=self._params['dtype'],
+              name="cudnn_rnn"
           )
         else:
           rnn_block = tf.contrib.cudnn_rnn.CudnnGRU(
-                  num_layers=self.params['encoder_layers'],
-                  num_units=self._emb_size, 
-                  dtype=self._params['dtype'],
-                  name="cudnn_rnn"
+              num_layers=self.params['encoder_layers'],
+              num_units=self._emb_size, 
+              dtype=self._params['dtype'],
+              name="cudnn_rnn"
           )
       else:
         # Transferring weights from model trained with CudnnLSTM/CudnnGRU
         # to CudnnCompatibleLSTMCell/CudnnCompatibleGRUCell for inference
         if rnn_type == 'lstm' or rnn_type == 'cudnn_lstm':
-          cell = lambda: tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_units=self._emb_size)
+          cell = lambda: \
+            tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(self._emb_size)
         elif rnn_type == 'gru' or rnn_type == 'cudnn_gru':
-          cell = lambda: tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell(num_units=self._emb_size)
+          cell = lambda: \
+            tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell(self._emb_size)
 
         fwd_cells = [cell() for _ in range(self.params['encoder_layers'])]
         self._encoder_cell_fw = tf.nn.rnn_cell.MultiRNNCell(fwd_cells)
@@ -338,8 +340,8 @@ class LMEncoder(Encoder):
     # Inference for language modeling requires a different graph
     if (not self._lm_phase) or self._mode == 'train' or self._mode == 'eval':
       embedded_inputs = tf.cast(tf.nn.embedding_lookup(
-        self.enc_emb_w,
-        source_sequence,
+          self.enc_emb_w,
+          source_sequence,
       ), self.params['dtype'])
 
       if use_cudnn_rnn:
@@ -350,28 +352,32 @@ class LMEncoder(Encoder):
         encoder_outputs = tf.transpose(encoder_outputs, [1, 0, 2])
       else:
         encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
-          cell=self._encoder_cell_fw,
-          inputs=embedded_inputs,
-          sequence_length=source_length,
-          time_major=time_major,
-          swap_memory=use_swap_memory,
-          dtype=self._params['dtype'],
-          scope='decoder',
+            cell=self._encoder_cell_fw,
+            inputs=embedded_inputs,
+            sequence_length=source_length,
+            time_major=time_major,
+            swap_memory=use_swap_memory,
+            dtype=self._params['dtype'],
+            scope='decoder'
         )
 
       if not self._lm_phase:
         if self._use_cell_state:
-          encoder_outputs = tf.concat([encoder_state[-1].h, encoder_state[-1].c], axis=1)
+          encoder_outputs = tf.concat(
+                                [encoder_state[-1].h, 
+                                encoder_state[-1].c], 
+                                axis=1
+                            )
         else:
           encoder_outputs = encoder_state[-1].h
 
       if self._mode == 'train' and self._num_sampled < self._fc_dim: # sampled softmax
         output_dict = {'weights': enc_emb_w,
-                    'bias': dense_biases,
-                    'inputs': encoder_outputs,
-                    'logits': encoder_outputs,
-                    'outputs': [encoder_outputs],
-                    'num_sampled': self._num_sampled}
+                       'bias': dense_biases,
+                       'inputs': encoder_outputs,
+                       'logits': encoder_outputs,
+                       'outputs': [encoder_outputs],
+                       'num_sampled': self._num_sampled}
       else: # full softmax
         logits = self._output_layer.apply(encoder_outputs)
         output_dict = {'logits': logits, 'outputs': [logits]}
@@ -379,10 +385,13 @@ class LMEncoder(Encoder):
       # This portion of graph is required to restore weights from CudnnLSTM to 
       # CudnnCompatibleLSTMCell/CudnnCompatibleGRUCell
       if use_cudnn_rnn:
-        embedded_inputs = tf.cast(tf.nn.embedding_lookup(
-          self.enc_emb_w,
-          source_sequence,
-        ), self.params['dtype'])
+        embedded_inputs = tf.cast(
+            tf.nn.embedding_lookup(
+                self.enc_emb_w,
+                source_sequence,
+            ), 
+            self.params['dtype']
+        )
 
         # Scope must remain unset to restore weights
         encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
@@ -394,37 +403,43 @@ class LMEncoder(Encoder):
             dtype=self._params['dtype']
         )
 
-      embedding_fn = lambda ids: tf.cast(tf.nn.embedding_lookup(
-                                          self.enc_emb_w,
-                                          ids,
-                                        ), self.params['dtype'])
+      embedding_fn = lambda ids: tf.cast(
+          tf.nn.embedding_lookup(
+              self.enc_emb_w,
+              ids
+          ), 
+          self.params['dtype']
+      )
 
       helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-        embedding=embedding_fn,#self._dec_emb_w,
-        start_tokens = tf.constant(self.params['seed_tokens']),
-        end_token=self.params['end_token'])
+          embedding=embedding_fn,#self._dec_emb_w,
+          start_tokens = tf.constant(self.params['seed_tokens']),
+          end_token=self.params['end_token']
+      )
       
       decoder = tf.contrib.seq2seq.BasicDecoder(
-        cell=self._encoder_cell_fw,
-        helper=helper,
-        initial_state=self._encoder_cell_fw.zero_state(
-          batch_size=self._batch_size, dtype=self._params['dtype'],
-        ),
-        output_layer=self._output_layer,
+          cell=self._encoder_cell_fw,
+          helper=helper,
+          initial_state=self._encoder_cell_fw.zero_state(
+              batch_size=self._batch_size, dtype=self._params['dtype'],
+          ),
+          output_layer=self._output_layer,
       )
       maximum_iterations = tf.constant(self._num_tokens_gen)
 
-      final_outputs, final_state, final_sequence_lengths = tf.contrib.seq2seq.dynamic_decode(
-        decoder=decoder,
-        impute_finished=False,
-        maximum_iterations=maximum_iterations,
-        swap_memory=use_swap_memory,
-        output_time_major=time_major,
-      )
+      final_outputs, final_state, final_sequence_lengths = \
+          tf.contrib.seq2seq.dynamic_decode(
+              decoder=decoder,
+              impute_finished=False,
+              maximum_iterations=maximum_iterations,
+              swap_memory=use_swap_memory,
+              output_time_major=time_major,
+          )
+
       output_dict = {'logits': final_outputs.rnn_output,
-            'outputs': [tf.argmax(final_outputs.rnn_output, axis=-1)],
-            'final_state': final_state,
-            'final_sequence_lengths': final_sequence_lengths}
+          'outputs': [tf.argmax(final_outputs.rnn_output, axis=-1)],
+          'final_state': final_state,
+          'final_sequence_lengths': final_sequence_lengths}
 
     return output_dict
 
