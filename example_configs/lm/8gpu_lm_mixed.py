@@ -67,7 +67,7 @@ base_params = {
         "forget_bias": 1.0,
     },
     "use_cudnn_rnn": True,
-    "rnn_type": "lstm"
+    "rnn_type": "lstm",
     "encoder_layers": 3,
     "encoder_dp_input_keep_prob": 1.0,
     "encoder_dp_output_keep_prob": 0.9, # output dropout for middle layer 0.3
