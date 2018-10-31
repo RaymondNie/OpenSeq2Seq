@@ -58,7 +58,7 @@ base_params = {
         "num_units": 128,
         "forget_bias": 1.0,
     },
-    "encoder_layers": 2,
+    "encoder_layers": 3,
     "encoder_dp_input_keep_prob": 1.0,
     "encoder_dp_output_keep_prob": 0.6,
     "encoder_last_input_keep_prob": 1.0,
