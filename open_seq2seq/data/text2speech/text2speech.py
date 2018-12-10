@@ -49,7 +49,8 @@ class Text2SpeechDataLayer(DataLayer):
             'duration_min': int,
             'duration_max': int,
             'mel_type': ['slaney', 'htk'],
-            "exp_mag": bool
+            "exp_mag": bool,
+            'reduction_factor': int
         }
     )
 
@@ -115,8 +116,10 @@ class Text2SpeechDataLayer(DataLayer):
     header = None
 
     if self.params["dataset"] == "LJ":
-      self._sampling_rate = 22050
-      self._n_fft = 1024
+      # self._sampling_rate = 22050
+      # self._n_fft = 1024
+      self._sampling_rate = 48000
+      self._n_fft = 2400
     elif self.params["dataset"] == "MAILABS":
       self._sampling_rate = 16000
       self._n_fft = 800
@@ -338,8 +341,20 @@ class Text2SpeechDataLayer(DataLayer):
       spec.set_shape(
           [self.params['batch_size'], None, num_audio_features]
       )
+
       stop_token_target.set_shape([self.params['batch_size'], None])
       spec_length = tf.reshape(spec_length, [self.params['batch_size']])
+
+      # if self.params['reduction_factor'] != None:
+      #   shape = tf.shape(spec)
+      #   spec = tf.reshape(spec, [shape[0], shape[1] // self.params['reduction_factor'], -1])
+      #   spec.set_shape(
+      #     [self.params['batch_size'], None, num_audio_features * self.params['reduction_factor']]
+      #   )
+      #   print(spec.get_shape())
+      #   spec_length = spec_length // self.params['reduction_factor']
+      #   stop_token_target = stop_token_target[::self.params['reduction_factor']]
+
     else:
       text, text_length = self._iterator.get_next()
     text.set_shape([self.params['batch_size'], None])
@@ -407,6 +422,7 @@ class Text2SpeechDataLayer(DataLayer):
         self.params['num_audio_features'],
         features_type=features_type,
         n_fft=self._n_fft,
+        hop_length=600,
         mag_power=self.params.get('mag_power', 2),
         feature_normalize=self.params["feature_normalize"],
         mean=self.params.get("feature_normalize_mean", 0.),

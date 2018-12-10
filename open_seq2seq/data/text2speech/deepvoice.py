@@ -60,7 +60,7 @@ class DeepVoiceDataLayer(DataLayer):
 
     # Sampling parameters for the LJSpeech dataset
     self._sampling_rate = 22050
-    self._n_fft = 1024
+    self._n_fft = 4096
 
     n_feats = self.params['num_audio_features']    #n_mels = n_feats
     n_mels = n_feats

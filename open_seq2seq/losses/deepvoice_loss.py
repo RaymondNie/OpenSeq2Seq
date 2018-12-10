@@ -33,9 +33,11 @@ class DeepVoiceLoss(Loss):
     stop_token_target = input_dict['target_tensors'][1]
     stop_token_target = tf.expand_dims(stop_token_target, -1)
 
-    decoder_loss = tf.losses.mean_squared_error(
-        labels=mel_target, predictions=mel_output
-    )
+    # decoder_loss = tf.losses.mean_squared_error(
+    #     labels=mel_target, predictions=mel_output
+    # )
+
+    decoder_loss = tf.reduce_mean(tf.abs(mel_target - mel_output))
 
     stop_token_loss = tf.nn.sigmoid_cross_entropy_with_logits(
         labels=stop_token_target, logits=stop_token_outputs

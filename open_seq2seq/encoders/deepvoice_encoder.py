@@ -11,83 +11,14 @@ from tensorflow.python.framework import ops
 from open_seq2seq.parts.rnns.utils import single_cell
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv
 from open_seq2seq.parts.convs2s.utils import gated_linear_units
+from open_seq2seq.parts.deepvoice.utils import conv_block, glu
 
 from .encoder import Encoder
-
-def glu(inputs, speaker_emb=None):
-  '''
-  Deep Voice 3 GLU that supports speaker embeddings
-  '''
-  a, b = tf.split(inputs, 2, -1)  # (N, Tx, c) * 2
-  outputs = a * tf.nn.sigmoid(b)
-  return outputs
-
-def conv_block(
-    inputs, 
-    layer, 
-    dropout,
-    filters, 
-    kernel_size, 
-    regularizer,
-    training, 
-    data_format, 
-    causal=False,
-    speaker_emb=None):
-  '''
-  Helper function to create Deep Voice 3 Conv Block
-  '''
-  with tf.variable_scope("conv_block"):
-    if filters == None:
-      filters = inputs.get_shape()[-1] * 2
-
-    inputs = tf.nn.dropout(inputs, 1-dropout)
-
-    if causal:
-      padded_inputs = tf.pad(
-          inputs,
-          [[0, 0], [(kernel_size - 1), 0], [0, 0]]
-      )
-    else:
-      # Kernel size should be odd to preserve sequence length with this padding
-      padded_inputs = tf.pad(
-          inputs,
-          [[0, 0], [(kernel_size - 1) // 2, (kernel_size - 1) // 2], [0, 0]]
-      )
-
-    conv_out = conv_actv(
-        layer_type='conv1d',
-        name="conv_block_{}".format(layer),
-        inputs=padded_inputs,
-        filters=filters,
-        kernel_size=kernel_size,
-        activation_fn=None,
-        strides=1,
-        padding='VALID',
-        regularizer=regularizer,
-        training=training,
-        data_format=data_format
-    )
-
-    if speaker_emb != None:
-      input_shape = inputs.get_shape().as_list()
-      speaker_emb = tf.contrib.layer.fully_connected(
-          speaker_emb,
-          input_shape[-1]//2,
-          activation_fn=tf.nn.softsign
-      )
-
-    actv = glu(conv_out, speaker_emb)
-
-    output = tf.add(inputs, actv) * tf.sqrt(0.5)
-
-  return output
-
 
 class DeepVoiceEncoder(Encoder):
   """Deep Voice 3 like encoder
   
   """ 
-
   @staticmethod
   def get_required_params():
     return dict(
@@ -97,7 +28,7 @@ class DeepVoiceEncoder(Encoder):
             'conv_layers': int,
             'channels': int,
             'kernel_size': int,
-            'dropout_prob': float
+            'keep_prob': float
         }
     )
 
@@ -133,16 +64,16 @@ class DeepVoiceEncoder(Encoder):
     training = (self._mode == "train")
     regularizer = self.params.get('regularizer', None)
     src_vocab_size = self._model.get_data_layer().params['src_vocab_size']
-
+    
     # ----- Text embedding -----------------------------------------------
-    with tf.variable_scope("text_embedding"):
+    with tf.variable_scope("embedding"):
       text = input_dict['source_tensors'][0]
-      text_len = input_dict['source_tensors'][1]
 
       enc_emb_w = tf.get_variable(
           "text_embeddings", 
           [src_vocab_size, self.params['emb_size']],
-          dtype=self.params['dtype']
+          dtype=self.params['dtype'],
+          initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1)
       )
 
       # [B, Tx, e]
@@ -152,16 +83,21 @@ class DeepVoiceEncoder(Encoder):
       )
 
     # ----- Encoder PreNet -----------------------------------------------
-    with tf.variable_scope("text_embedding"):
+    with tf.variable_scope("encoder_prenet"):
       if self.params['speaker_emb'] != None:
         speaker_fc1 = tf.contrib.layers.fully_connected(
             self.params['speaker_emb'],
             self.params['emb_size'],
+            weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+                                factor=self.params['keep_prob']),
             activation_fn=tf.nn.softsign
         )
         speaker_fc2 = tf.contrib.layers.fully_connected(
             self.params['speaker_emb'],
             self.params['emb_size'],
+            weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+                factor=self.params['keep_prob']
+            ),
             activation_fn=tf.nn.softsign
         )
 
@@ -171,22 +107,22 @@ class DeepVoiceEncoder(Encoder):
       inputs = tf.contrib.layers.fully_connected(
           embedded_inputs, 
           self.params['emb_size'],
+          weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+              factor=self.params['keep_prob']
+          ),
           activation_fn=None
       )
 
+    residual = inputs;
 
     # ----- Conv Blocks  --------------------------------------------------
-    with tf.variable_scope("conv_layers", reuse=tf.AUTO_REUSE):
-      residual = inputs;
-
+    with tf.variable_scope("encoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['conv_layers']):
-
-        inputs = tf.nn.dropout(inputs, 1 - self.params['dropout_prob'])
-
+        inputs = tf.nn.dropout(inputs, self.params['keep_prob'])
         inputs = conv_block(
             inputs=inputs,
             layer=layer,      
-            dropout=1-self.params['dropout_prob'],
+            keep_prob=self.params['keep_prob'],
             filters=self.params['channels'], 
             kernel_size=self.params['kernel_size'], 
             regularizer=regularizer,
@@ -202,6 +138,9 @@ class DeepVoiceEncoder(Encoder):
       inputs = tf.contrib.layers.fully_connected(
           inputs, 
           self.params['emb_size'],
+          weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+              factor=self.params['keep_prob']
+          ),
           activation_fn=None
       )
 
