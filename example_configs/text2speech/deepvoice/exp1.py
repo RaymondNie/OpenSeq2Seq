@@ -99,4 +99,4 @@ base_params = {
 	},
   # Loss params
   "loss": DeepVoiceLoss
-}l
+}
