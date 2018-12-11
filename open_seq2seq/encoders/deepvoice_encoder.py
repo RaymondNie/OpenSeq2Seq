@@ -9,7 +9,7 @@ import tensorflow as tf
 from tensorflow.contrib.cudnn_rnn.python.ops import cudnn_rnn_ops
 from tensorflow.python.framework import ops
 from open_seq2seq.parts.rnns.utils import single_cell
-from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv
+from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.convs2s.utils import gated_linear_units
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
 
@@ -84,71 +84,103 @@ class DeepVoiceEncoder(Encoder):
 
     # ----- Encoder PreNet -----------------------------------------------
     with tf.variable_scope("encoder_prenet"):
-      if self.params['speaker_emb'] != None:
-        speaker_fc1 = tf.contrib.layers.fully_connected(
-            self.params['speaker_emb'],
-            self.params['emb_size'],
-            weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                                factor=self.params['keep_prob']),
-            activation_fn=tf.nn.softsign
-        )
-        speaker_fc2 = tf.contrib.layers.fully_connected(
-            self.params['speaker_emb'],
-            self.params['emb_size'],
-            weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                factor=self.params['keep_prob']
-            ),
-            activation_fn=tf.nn.softsign
-        )
-
-        inputs = tf.add(embedded_text_ids, speaker_fc1);
+      # if self.params['speaker_emb'] != None:
+      #   speaker_fc1 = tf.contrib.layers.fully_connected(
+      #       self.params['speaker_emb'],
+      #       self.params['emb_size'],
+      #       weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+      #                           factor=self.params['keep_prob']),
+      #       activation_fn=tf.nn.softsign
+      #   )
+      #   speaker_fc2 = tf.contrib.layers.fully_connected(
+      #       self.params['speaker_emb'],
+      #       self.params['emb_size'],
+      #       weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+      #           factor=self.params['keep_prob']
+      #       ),
+      #       activation_fn=tf.nn.softsign
+      #   )
+      #   inputs = tf.add(embedded_text_ids, speaker_fc1);
 
       # [B, Tx, c]
-      inputs = tf.contrib.layers.fully_connected(
-          embedded_inputs, 
-          self.params['emb_size'],
-          weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+      embedding_proj = tf.layers.dense(
+          inputs=embedded_inputs,
+          units=self.params['emb_size'],
+          kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
               factor=self.params['keep_prob']
-          ),
-          activation_fn=None
+          )
       )
 
-    residual = inputs;
+    conv_feats = embedding_proj
+    initial_residual = embedding_proj
 
     # ----- Conv Blocks  --------------------------------------------------
     with tf.variable_scope("encoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['conv_layers']):
-        inputs = tf.nn.dropout(inputs, self.params['keep_prob'])
-        inputs = conv_block(
-            inputs=inputs,
-            layer=layer,      
-            keep_prob=self.params['keep_prob'],
-            filters=self.params['channels'], 
-            kernel_size=self.params['kernel_size'], 
-            regularizer=regularizer,
-            training=training, 
-            data_format='channels_last',
-            causal=True,
-            speaker_emb=self.params['speaker_emb']
+
+        conv_feats = tf.nn.dropout(conv_feats, self.params['keep_prob'])
+
+        # residual for each conv block
+        per_layer_residual = conv_feats
+
+        # Kernel size should be odd to preserve sequence length with this padding
+        padded_inputs = tf.pad(
+            conv_feats,
+            [[0, 0], [(self.params['kernel_size'] - 1) // 2, (self.params['kernel_size'] - 1) // 2], [0, 0]]
         )
 
+        if layer == self.params['conv_layers'] - 1:
+          conv_feats = conv_bn_res_bn_actv(
+              layer_type="conv1d",
+              name="conv_bn_res_bn_actv_{}".format(layer+1),
+              inputs=padded_inputs,
+              res_inputs=initial_residual,
+              filters=self.params['channels'],
+              kernel_size=self.params['kernel_size'],
+              activation_fn=tf.nn.relu,
+              strides=1,
+              padding="VALID",
+              regularizer=None,
+              training=training,
+              data_format="channels_last",
+              bn_momentum=0.9,
+              bn_epsilon=1e-3
+          )
+        else:
+          conv_feats = conv_bn_actv(
+              layer_type="conv1d",
+              name="conv_bn_{}".format(layer+1),
+              inputs=padded_inputs,
+              filters=self.params['channels'],
+              kernel_size=self.params['kernel_size'],
+              activation_fn=tf.nn.relu,
+              strides=1,
+              padding="VALID",
+              regularizer=None,
+              training=training,
+              data_format="channels_last",
+              bn_momentum=0.9,
+              bn_epsilon=1e-3
+          )
+
+          conv_feats += per_layer_residual
+
+    conv_output = conv_feats
     # ----- Encoder PostNet -----------------------------------------------
+
+
     with tf.variable_scope("encoder_postnet"):
       # [B, Tx, e]
-      inputs = tf.contrib.layers.fully_connected(
-          inputs, 
-          self.params['emb_size'],
-          weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+
+      conv_proj = tf.layers.dense(
+          inputs=conv_output,
+          units=self.params['emb_size'],
+          kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
               factor=self.params['keep_prob']
-          ),
-          activation_fn=None
+          )
       )
 
-      key = inputs
+      keys = conv_proj
+      vals = tf.add(keys, embedded_inputs)
 
-      if self.params['speaker_emb'] != None:
-        key = tf.add(inputs, speaker_fc2) # [B, Tx, e]
-
-      value = tf.multiply(tf.add(key, residual), tf.sqrt(0.5)) # [B, Tx, e]
-      
-    return {"key": key, "value": value}
+    return {"keys": keys, "vals": vals}

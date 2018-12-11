@@ -3,6 +3,7 @@ import tensorflow as tf
 from open_seq2seq.parts.transformer import utils, attention_layer
 from .decoder import Decoder
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
+from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 
 def positional_encoding(length,
                         num_units,
@@ -195,8 +196,8 @@ class DeepVoiceDecoder(Decoder):
     alignments_list = []
 
     # TODO: add predicting multiple frames (r)
-    key = input_dict['encoder_output']['key'] # [B, Tx, e]
-    value = input_dict['encoder_output']['value'] # [B, Tx, e]
+    key = input_dict['encoder_output']['keys'] # [B, Tx, e]
+    value = input_dict['encoder_output']['vals'] # [B, Tx, e]
     
     # TODO: support speaker embedding
     speaker_emb = self.params.get('speaker_emb', None)
@@ -205,17 +206,17 @@ class DeepVoiceDecoder(Decoder):
     
     if training:
       # [B, Ty, n]
-      inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
+      mel_inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
                                                     input_dict else None
       # [B]
       spec_length = input_dict['target_tensors'][2] if 'target_tensors' in \
                                                     input_dict else None
 
-    _batch_size = input_dict['encoder_output']['key'].get_shape().as_list()[0]
+    _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
       
     # ----- Positional Encoding ------------------------------------------
     key_len = tf.shape(key)[1]
-    query_len = tf.shape(inputs)[1]
+    query_len = tf.shape(mel_inputs)[1]
 
     # key_pe = utils.get_position_encoding(key_len, self.params['emb_size'])
     # query_pe = utils.get_position_encoding(query_len, tf.to_float(query_len/key_len), self.params['emb_size'])
@@ -227,82 +228,84 @@ class DeepVoiceDecoder(Decoder):
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):
       for i in range(self.params['prenet_layers']):
-        inputs = tf.nn.dropout(inputs, self.params['keep_prob'])
-
-        if speaker_emb != None:
-          speaker_emb_fc = tf.contrib.layers.fully_connected(
-            speaker_emb,
-            self._n_feats,
-            activation_fn=tf.nn.softsign
-          )  
-
-          inputs = tf.add(inputs, speaker_emb_fc)
+        mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
 
         # [B, Ty, e]
-        inputs = tf.contrib.layers.fully_connected(
-            inputs,
-            self.params['emb_size'],
-            weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=self.params['keep_prob']
-            ),
-            activation_fn=tf.nn.relu
+        mel_inputs = tf.layers.dense(
+            inputs=mel_inputs,
+            units=self.params['emb_size'],
+            activation=tf.nn.relu,
+            kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+                factor=self.params['keep_prob']
+            )
         )
+
+    conv_feats = mel_inputs
+    key += key_pe
 
     # ----- Conv/Attn Blocks ---------------------------------------------
     with tf.variable_scope("decoder_layers", reuse=tf.AUTO_REUSE):
-      for i in range(self.params['decoder_layers']):
-        # [B, Ty, c]
-        query = conv_block(    
-            inputs=inputs,
-            layer=i,
-            keep_prob=self.params['keep_prob'],
-            filters=None, 
-            kernel_size=self.params['kernel_size'], 
-            regularizer=regularizer,
-            training=training, 
-            data_format='channels_last',
-            causal=True, 
-            speaker_emb=self.params['speaker_emb']
+      for layer in range(self.params['decoder_layers']):
+
+        filters = conv_feats.get_shape()[-1]
+
+        padded_inputs = tf.pad(
+            conv_feats,
+            [[0, 0], [(self.params['kernel_size'] - 1), 0], [0, 0]]
         )
 
-        query += query_pe
-        key += key_pe
+        # [B, Ty, c]
+        queries = conv_bn_actv(
+            layer_type="conv1d",
+            name="conv_bn_{}".format(layer+1),
+            inputs=padded_inputs,
+            filters=filters,
+            kernel_size=self.params['kernel_size'],
+            activation_fn=tf.nn.relu,
+            strides=1,
+            padding="VALID",
+            regularizer=None,
+            training=training,
+            data_format="channels_last",
+            bn_momentum=0.9,
+            bn_epsilon=1e-3
+        )
+
+        # Add positional Encoding
+        queries += query_pe + conv_feats
 
         tensor, alignments = attention_block(
-            query,
-            key,
-            value,
-            self.params['attention_size'],
-            self.params['emb_size']
+            queries=queries,
+            keys=key,
+            vals=value,
+            attn_size=self.params['attention_size'],
+            emb_size=self.params['emb_size']
         )
 
         alignments_list.append(alignments)
         
         # residual
-        inputs = (tensor + query) * tf.sqrt(0.5)
-
-    decoder_output = inputs
+        conv_feats = queries + tensor
+    decoder_output = conv_feats
 
     # Done prediction
 
-    stop_token_projection_layer = tf.layers.Dense(
-        name="stop_token_proj",
+    stop_token_logits = tf.layers.dense(
+        inputs=decoder_output,
         units=1,
         kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
                     factor=self.params['keep_prob']
         ),
-        use_bias=True,
+        name="stop_token_proj",
     )
 
-    stop_token_logits = stop_token_projection_layer(decoder_output)
-
-    mel_logits = tf.contrib.layers.fully_connected(
-        decoder_output,
-        self._n_feats,
-        weights_initializer=tf.contrib.layers.variance_scaling_initializer(
+    mel_logits = tf.layers.dense(
+        inputs=decoder_output,
+        units=self._n_feats,
+        kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
                     factor=self.params['keep_prob']
         ),
-        activation_fn=None
+        name="mel_prediction_proj",
     )
 
     return {
