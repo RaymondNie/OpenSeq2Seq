@@ -56,7 +56,7 @@ base_params = {
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
-      os.path.join(dataset_location, "ljs_audio_text_val_filelist.txt"),
+      os.path.join(dataset_location, "val.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
