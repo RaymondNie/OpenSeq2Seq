@@ -36,7 +36,7 @@ base_params = {
     "learning_rate": 1e-4,
   },
   "summaries": ['learning_rate'],  
-  "batch_size_per_gpu": 16,
+  "batch_size_per_gpu": 4,
   "num_epochs": 1000,
 	"dtype": tf.float32,
   # Data Layer params
