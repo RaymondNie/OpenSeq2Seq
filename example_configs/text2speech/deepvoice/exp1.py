@@ -21,7 +21,7 @@ encoder_channels == c
 reduction_factor == r
 '''
 base_params = {
-	"num_gpus": 8,
+	"num_gpus": 1,
   "use_horovod": False,
 	"logdir": "deepvoice3_fp32",
   "print_loss_steps": 500,

@@ -307,8 +307,9 @@ class DeepVoiceDecoder(Decoder):
         ),
         name="mel_prediction_proj",
     )
-
+    stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
+    
     return {
         'outputs': [mel_logits, alignments_list],
-        'stop_token_prediction': [stop_token_logits],
+        'stop_token_prediction': stop_token_predictions,
     }
