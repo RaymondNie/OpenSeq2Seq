@@ -22,8 +22,8 @@ encoder_channels == c
 reduction_factor == r
 '''
 base_params = {
-  "use_horovod": False,
-	"logdir": "deepvoice3_fp32_3",
+  "use_horovod": True,
+	"logdir": "/results/deepvoice3_fp32_3",
   "print_loss_steps": 100,
   "print_samples_steps": 1000,
   "save_checkpoint_steps": 1000,
