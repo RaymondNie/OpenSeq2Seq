@@ -24,8 +24,8 @@ reduction_factor == r
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
-  # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_5",
+  "logdir": "/results/deepvoice3_fp32",
+  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_5",
   "print_loss_steps": 100,
   "print_samples_steps": 1000,
   "save_checkpoint_steps": 1000,
