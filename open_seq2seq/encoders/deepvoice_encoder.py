@@ -64,7 +64,7 @@ class DeepVoiceEncoder(Encoder):
     training = (self._mode == "train")
     regularizer = self.params.get('regularizer', None)
     src_vocab_size = self._model.get_data_layer().params['src_vocab_size']
-    
+    key_lens = input_dict['source_tensors'][1]
     # ----- Text embedding -----------------------------------------------
     with tf.variable_scope("embedding"):
       text = input_dict['source_tensors'][0]
@@ -166,9 +166,8 @@ class DeepVoiceEncoder(Encoder):
           conv_feats += per_layer_residual
 
     conv_output = conv_feats
+
     # ----- Encoder PostNet -----------------------------------------------
-
-
     with tf.variable_scope("encoder_postnet"):
       # [B, Tx, e]
 
@@ -181,6 +180,6 @@ class DeepVoiceEncoder(Encoder):
       )
 
       keys = conv_proj
-      vals = tf.add(keys, embedded_inputs)
-
-    return {"keys": keys, "vals": vals}
+      vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
+    # keys = tf.Print(keys[0,-5:,-5:])
+    return {"keys": keys, "vals": vals, "key_lens": key_lens}

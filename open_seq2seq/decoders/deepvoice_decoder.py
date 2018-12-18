@@ -1,148 +1,165 @@
 import tensorflow as tf
-
+import numpy as np
 from open_seq2seq.parts.transformer import utils, attention_layer
 from .decoder import Decoder
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
+from open_seq2seq.parts.rnns.attention_wrapper import _maybe_mask_score
+import math
 
 def positional_encoding(length,
                         num_units,
                         position_rate=1.,
-                        zero_pad=False,
-                        scale=True,
                         scope="positional_encoding",
                         reuse=None):
-    '''Sinusoidal Positional_Encoding.
+  '''Sinusoidal Positional_Encoding.
 
-    Args:
-      inputs: A 2d Tensor with shape of (N, T).
-      num_units: Output dimensionality
-      position_rate: A float. Average slope of the line in the attention distribution
-      zero_pad: Boolean. If True, all the values of the first row (id = 0) should be constant zero
-      scale: Boolean. If True, the output will be multiplied by sqrt num_units(check details from paper)
-      scope: Optional scope for `variable_scope`.
-      reuse: Boolean, whether to reuse the weights of a previous layer
-        by the same name.
+  Args:
+    inputs: A 2d Tensor with shape of (N, T).
+    num_units: Output dimensionality
+    position_rate: A float. Average slope of the line in the attention distribution
+    zero_pad: Boolean. If True, all the values of the first row (id = 0) should be constant zero
+    scale: Boolean. If True, the output will be multiplied by sqrt num_units(check details from paper)
+    scope: Optional scope for `variable_scope`.
+    reuse: Boolean, whether to reuse the weights of a previous layer
+      by the same name.
 
-    Returns:
-        A 'Tensor' with one more rank than inputs's, with the dimensionality should be 'num_units'
-    '''
+  Returns:
+      A 'Tensor' with one more rank than inputs's, with the dimensionality should be 'num_units'
+  '''
+  even_cols = tf.range(start=0, limit=num_units, delta=2)
+  odd_cols = tf.range(start=1, limit=num_units, delta=2)
 
-    odd_indices = tf.to_float(tf.range(
-        start=1,
-        limit=length,
-        delta=2,
-    ))
-    even_indices = tf.to_float(tf.range(
-        start=0,
-        limit=length,
-        delta=2,
-    ))
+  even_cols = tf.expand_dims(tf.to_float(1.0e4 ** (even_cols / num_units)), 0) # [1, e/2]
+  odd_cols = tf.expand_dims(tf.to_float(1.0e4 ** (odd_cols / num_units)), 0) # [1, e/2]
 
-    odd_indices = tf.expand_dims(odd_indices * position_rate, 1) # [T/2, 1]
-    even_indices = tf.expand_dims(even_indices * position_rate, 1) # [T/2,1]
+  rows = tf.expand_dims(tf.to_float(tf.range(length)) * tf.to_float(position_rate), 1) # [T, 1]
 
-    timescale = tf.to_float(1.0e4 ** (tf.range(num_units) / num_units)) # [1, e]
-    timescale = tf.expand_dims(timescale, 0)
+  even_cols = tf.sin(tf.matmul(rows, 1 / even_cols)) # [T, e/2]
+  odd_cols = tf.cos(tf.matmul(rows, 1 / odd_cols)) # [T, e/2]
 
-    odd_indices = tf.cos(tf.matmul(odd_indices, 1 / timescale)) # [T/2, e]
-    even_indices = tf.sin(tf.matmul(even_indices, 1 / timescale)) # [T/2, e]
+  # Combine even and odd indicies
+  positional_enc = tf.reshape(
+    tf.stack([even_cols, odd_cols], axis=2),
+    [length, num_units]
+  ) # [T, e]
 
-    # Combine even and odd indicies
-    positional_enc = tf.reshape(
-      tf.stack([even_indices, odd_indices], axis=1),
-      [length, num_units]
-    ) # [T, e]
+  return positional_enc
 
-    return positional_enc
 
 def attention_block(queries,
                     keys,
                     vals,
                     attn_size,
                     emb_size,
-                    dropout_rate=0,
-                    prev_max_attentions=None,
+                    key_lens,
+                    layer,
+                    keep_prob=0.95,
+                    last_attended=None,
                     training=False,
                     mononotic_attention=False,
+                    window_size=3,
                     scope="attention_block",
                     reuse=None):
-    '''Attention block.
-     Args:
-       queries: A 3-D tensor with shape of [batch, Ty//r, e].
-       keys: A 3-D tensor with shape of [batch, Tx, e].
-       vals: A 3-D tensor with shape of [batch, Tx, e].
-       num_units: An int. Attention size.
-       dropout_rate: A float of [0, 1]. Dropout rate.
-       norm_type: A string. See `normalize`.
-       activation_fn: A string. Activation function.
-       training: A boolean. Whether or not the layer is in training mode.
-       scope: Optional scope for `variable_scope`.
-       reuse: Boolean, whether to reuse the weights of a previous layer
-         by the same name.
-    '''
-    _keys = keys
-    with tf.variable_scope(scope, reuse=reuse):
-        with tf.variable_scope("query_proj"):
-            queries = tf.contrib.layers.fully_connected(
-                queries,
-                attn_size,
-                weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=(1. - dropout_rate)
-                ),                
-                activation_fn=None
-            )
-        with tf.variable_scope("key_proj"):
-            keys = tf.contrib.layers.fully_connected(
-                keys,
-                attn_size,
-                weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=(1. - dropout_rate)
-                ),
-                activation_fn=None
-            )
-        with tf.variable_scope("value_proj"):
-            vals = tf.contrib.layers.fully_connected(
-                vals,
-                attn_size,
-                weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=(1. - dropout_rate)
-                ),
-                activation_fn=None
-            )
-        with tf.variable_scope("alignments"):
-            attention_weights = tf.matmul(queries, keys, transpose_b=True)  # (N, Ty/r, Tx)
+  '''Attention block.
+   Args:
+     queries: A 3-D tensor with shape of [batch, Ty//r, e].
+     keys: A 3-D tensor with shape of [batch, Tx, e].
+     vals: A 3-D tensor with shape of [batch, Tx, e].
+     num_units: An int. Attention size.
+     norm_type: A string. See `normalize`.
+     activation_fn: A string. Activation function.
+     training: A boolean. Whether or not the layer is in training mode.
+     scope: Optional scope for `variable_scope`.
+     reuse: Boolean, whether to reuse the weights of a previous layer
+       by the same name.
+  '''
+  _, Ty, in_dim = queries.get_shape().as_list()
+  _, Tx, in_dim = keys.get_shape().as_list()
+  Ty = tf.shape(queries)[1]
+  Tx = tf.shape(keys)[1]
 
-            # Key Masking
-            key_masks = tf.sign(tf.abs(tf.reduce_sum(keys, axis=-1)))  # (N, Tx)
-            key_masks = tf.tile(tf.expand_dims(key_masks, 1), [1, tf.shape(queries)[1], 1])  # (N, Ty/r, Tx)
-
-            paddings = tf.ones_like(attention_weights) * (-2 ** 32 + 1)
-            attention_weights = tf.where(tf.equal(key_masks, 0), paddings, attention_weights)  # (N, Ty/r, Tx)
-
-            Tx = tf.shape(attention_weights)[-1]
-
-            alignments = tf.nn.softmax(attention_weights)
-            max_attentions = tf.argmax(alignments, -1) # (N, Ty/r)
-
-        with tf.variable_scope("context"):
-            ctx = tf.layers.dropout(alignments, rate=dropout_rate, training=training)
-            ctx = tf.matmul(ctx, vals)  # (N, Ty/r, a)
-            ctx *= tf.rsqrt(tf.to_float(Tx))
-
-        # Restore shape for residual connection
-        tensor = tf.contrib.layers.fully_connected(
-            ctx,
-            emb_size,
-            weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=(1. - dropout_rate)
-            ),
-            activation_fn=None
+  with tf.variable_scope("{}_{}".format(scope, layer), reuse=reuse):
+    W_q = tf.get_variable(
+        name="query_weights",
+        shape=[in_dim, attn_size],
+        initializer=tf.contrib.layers.variance_scaling_initializer(
+            factor=keep_prob
         )
-        # returns the alignment of the first one
-        alignments = tf.transpose(alignments[0])[::-1, :]  # (Tx, Ty)
+    )
 
-    return tensor, alignments
+    b_q = tf.get_variable(
+        name="query_bias",
+        shape=[attn_size],
+        initializer=tf.zeros_initializer
+    )
+
+    W_k = tf.get_variable(
+        name="key_weights",
+        initializer=W_q
+    )
+
+    b_k = tf.get_variable(
+        name="key_bias",
+        shape=[attn_size],
+        initializer=tf.zeros_initializer
+    )
+
+    if layer != 0:
+      W_q = tf.nn.dropout(W_q, keep_prob)
+      W_k = tf.nn.dropout(W_k, keep_prob)
+    with tf.variable_scope("query_proj"):
+      queries = tf.matmul(tf.reshape(queries, (-1, in_dim)), W_q) + b_q
+      queries = tf.reshape(queries, (_, Ty, attn_size))
+    with tf.variable_scope("key_proj"):
+      keys = tf.matmul(tf.reshape(keys,(-1, in_dim)), W_k) + b_k
+      keys = tf.reshape(keys, (_,Tx, attn_size))
+    with tf.variable_scope("value_proj"):
+      vals = tf.layers.dense(
+          inputs=vals,
+          units=attn_size,
+          kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+              factor=keep_prob
+          )
+      )
+    with tf.variable_scope("alignments"):
+      attention_weights = tf.matmul(queries, keys, transpose_b=True)  # (N, Ty/r, Tx)
+      # attention_weights = tf.Print(attention_weights, [attention_weights[0,1,key_lens[0]-1:]], message="b4 mask")
+
+      # Key Masking
+      Tx = tf.shape(attention_weights)[-1]
+
+      score_mask = tf.sequence_mask(
+          key_lens, 
+          maxlen=tf.shape(keys)[1]
+      ) # (N, Tx)
+
+      score_mask = tf.tile(tf.expand_dims(score_mask, 1), [1, tf.shape(queries)[1], 1]) # (N, Ty, Tx)
+      score_mask_values = -np.inf * tf.ones_like(attention_weights)
+
+      attention_weights = tf.where(score_mask, attention_weights, score_mask_values)
+      # attention_weights = tf.Print(attention_weights, [attention_weights[0,1,key_lens[0]-1:]], message="after mask")
+
+      alignments = tf.nn.softmax(attention_weights)
+      max_attentions = tf.argmax(alignments, -1) # (N, Ty/r)
+
+    with tf.variable_scope("context"):
+      ctx = tf.nn.dropout(alignments, keep_prob)
+      ctx = tf.matmul(ctx, vals)  # (N, Ty/r, a)
+      ctx *= tf.rsqrt(tf.to_float(Tx))
+
+    # Restore shape for residual connection
+    tensor = tf.layers.dense(
+        inputs=ctx,
+        units=emb_size,
+        kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
+            factor=keep_prob
+        )
+    )
+    # returns the alignment of the first one
+    alignments = alignments[0]  # (Tx, Ty)
+
+  return tensor, alignments
 
 class DeepVoiceDecoder(Decoder):
   """
@@ -153,12 +170,13 @@ class DeepVoiceDecoder(Decoder):
   def get_required_params():
     return dict(
         Decoder.get_required_params(), **{
-            'prenet_layers': int,
+            'prenet_layers': list,
             'decoder_layers': int,
             'keep_prob': float,
             'kernel_size': int,
             'attention_size': int,
-            'emb_size': int
+            'emb_size': int,
+            'channels': int
         }
     )
 
@@ -198,7 +216,8 @@ class DeepVoiceDecoder(Decoder):
     # TODO: add predicting multiple frames (r)
     key = input_dict['encoder_output']['keys'] # [B, Tx, e]
     value = input_dict['encoder_output']['vals'] # [B, Tx, e]
-    
+    key_lens = input_dict['encoder_output']['key_lens']
+
     # TODO: support speaker embedding
     speaker_emb = self.params.get('speaker_emb', None)
 
@@ -209,31 +228,31 @@ class DeepVoiceDecoder(Decoder):
       mel_inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
                                                     input_dict else None
       # [B]
-      spec_length = input_dict['target_tensors'][2] if 'target_tensors' in \
+      spec_lens = input_dict['target_tensors'][2] if 'target_tensors' in \
                                                     input_dict else None
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
       
     # ----- Positional Encoding ------------------------------------------
-    key_len = tf.shape(key)[1]
-    query_len = tf.shape(mel_inputs)[1]
+    max_key_len = tf.shape(key)[1]
+    max_query_len = tf.shape(mel_inputs)[1]
 
     # key_pe = utils.get_position_encoding(key_len, self.params['emb_size'])
     # query_pe = utils.get_position_encoding(query_len, tf.to_float(query_len/key_len), self.params['emb_size'])
+    position_rate = max_query_len / max_key_len
 
-    key_pe = positional_encoding(key_len, self.params['emb_size'])
-    position_rate = tf.to_float(query_len/key_len)
-    query_pe = positional_encoding(query_len, self.params['emb_size'], position_rate=position_rate)
+    key_pe = positional_encoding(max_key_len, self.params['emb_size'], position_rate=position_rate)
+    query_pe = positional_encoding(max_query_len, self.params['emb_size'])
 
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):
-      for i in range(self.params['prenet_layers']):
+      for i, num in enumerate((self.params['prenet_layers'])):
         mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
 
         # [B, Ty, e]
         mel_inputs = tf.layers.dense(
             inputs=mel_inputs,
-            units=self.params['emb_size'],
+            units=num,
             activation=tf.nn.relu,
             kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
                 factor=self.params['keep_prob']
@@ -241,13 +260,12 @@ class DeepVoiceDecoder(Decoder):
         )
 
     conv_feats = mel_inputs
-    key += key_pe
 
     # ----- Conv/Attn Blocks ---------------------------------------------
     with tf.variable_scope("decoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['decoder_layers']):
 
-        filters = conv_feats.get_shape()[-1]
+        # filters = conv_feats.get_shape()[-1]
 
         padded_inputs = tf.pad(
             conv_feats,
@@ -259,7 +277,7 @@ class DeepVoiceDecoder(Decoder):
             layer_type="conv1d",
             name="conv_bn_{}".format(layer+1),
             inputs=padded_inputs,
-            filters=filters,
+            filters=self.params['channels'],
             kernel_size=self.params['kernel_size'],
             activation_fn=tf.nn.relu,
             strides=1,
@@ -271,30 +289,32 @@ class DeepVoiceDecoder(Decoder):
             bn_epsilon=1e-3
         )
 
-        # Add positional Encoding
+        # Add positional Encoding + residual
         queries += query_pe + conv_feats
+        key += key_pe
 
         tensor, alignments = attention_block(
             queries=queries,
             keys=key,
             vals=value,
             attn_size=self.params['attention_size'],
-            emb_size=self.params['emb_size']
+            emb_size=self.params['emb_size'],
+            key_lens=key_lens,
+            layer=layer
         )
 
         alignments_list.append(alignments)
         
         # residual
-        conv_feats = queries + tensor
+        conv_feats = (queries + tensor) * tf.sqrt(0.5)
     decoder_output = conv_feats
 
-    # Done prediction
-
+    # ----- Decoder Postnet ---------------------------------------------
     stop_token_logits = tf.layers.dense(
         inputs=decoder_output,
         units=1,
         kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=self.params['keep_prob']
+            factor=self.params['keep_prob']
         ),
         name="stop_token_proj",
     )
@@ -303,13 +323,12 @@ class DeepVoiceDecoder(Decoder):
         inputs=decoder_output,
         units=self._n_feats,
         kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-                    factor=self.params['keep_prob']
+            factor=self.params['keep_prob']
         ),
         name="mel_prediction_proj",
     )
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
-    
+
     return {
-        'outputs': [mel_logits, alignments_list],
-        'stop_token_prediction': stop_token_predictions,
+        'outputs': [mel_logits, stop_token_predictions, alignments_list, key_lens],
     }
