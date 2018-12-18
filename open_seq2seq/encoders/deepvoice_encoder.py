@@ -112,7 +112,6 @@ class DeepVoiceEncoder(Encoder):
       )
 
     conv_feats = embedding_proj
-    initial_residual = embedding_proj
 
     # ----- Conv Blocks  --------------------------------------------------
     with tf.variable_scope("encoder_layers", reuse=tf.AUTO_REUSE):
@@ -120,50 +119,28 @@ class DeepVoiceEncoder(Encoder):
 
         conv_feats = tf.nn.dropout(conv_feats, self.params['keep_prob'])
 
-        # residual for each conv block
-        per_layer_residual = conv_feats
-
         # Kernel size should be odd to preserve sequence length with this padding
         padded_inputs = tf.pad(
             conv_feats,
             [[0, 0], [(self.params['kernel_size'] - 1) // 2, (self.params['kernel_size'] - 1) // 2], [0, 0]]
         )
 
-        if layer == self.params['conv_layers'] - 1:
-          conv_feats = conv_bn_res_bn_actv(
-              layer_type="conv1d",
-              name="conv_bn_res_bn_actv_{}".format(layer+1),
-              inputs=padded_inputs,
-              res_inputs=initial_residual,
-              filters=self.params['channels'],
-              kernel_size=self.params['kernel_size'],
-              activation_fn=tf.nn.relu,
-              strides=1,
-              padding="VALID",
-              regularizer=None,
-              training=training,
-              data_format="channels_last",
-              bn_momentum=0.9,
-              bn_epsilon=1e-3
-          )
-        else:
-          conv_feats = conv_bn_actv(
-              layer_type="conv1d",
-              name="conv_bn_{}".format(layer+1),
-              inputs=padded_inputs,
-              filters=self.params['channels'],
-              kernel_size=self.params['kernel_size'],
-              activation_fn=tf.nn.relu,
-              strides=1,
-              padding="VALID",
-              regularizer=None,
-              training=training,
-              data_format="channels_last",
-              bn_momentum=0.9,
-              bn_epsilon=1e-3
-          )
-
-          conv_feats += per_layer_residual
+        conv_feats = conv_bn_res_bn_actv(
+            layer_type="conv1d",
+            name="conv_bn_res_bn_actv_{}".format(layer+1),
+            inputs=padded_inputs,
+            res_inputs=conv_feats,
+            filters=self.params['channels'],
+            kernel_size=self.params['kernel_size'],
+            activation_fn=tf.nn.relu,
+            strides=1,
+            padding="VALID",
+            regularizer=None,
+            training=training,
+            data_format="channels_last",
+            bn_momentum=0.9,
+            bn_epsilon=1e-3
+        )
 
     conv_output = conv_feats
 
@@ -181,5 +158,5 @@ class DeepVoiceEncoder(Encoder):
 
       keys = conv_proj
       vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
-    # keys = tf.Print(keys[0,-5:,-5:])
+
     return {"keys": keys, "vals": vals, "key_lens": key_lens}

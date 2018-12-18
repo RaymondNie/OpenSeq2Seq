@@ -74,15 +74,15 @@ def attention_block(queries,
      reuse: Boolean, whether to reuse the weights of a previous layer
        by the same name.
   '''
-  _, Ty, in_dim = queries.get_shape().as_list()
-  _, Tx, in_dim = keys.get_shape().as_list()
+  _, Ty, q_in_dim = queries.get_shape().as_list()
+  _, Tx, k_in_dim = keys.get_shape().as_list()
   Ty = tf.shape(queries)[1]
   Tx = tf.shape(keys)[1]
 
   with tf.variable_scope("{}_{}".format(scope, layer), reuse=reuse):
     W_q = tf.get_variable(
         name="query_weights",
-        shape=[in_dim, attn_size],
+        shape=[q_in_dim, attn_size],
         initializer=tf.contrib.layers.variance_scaling_initializer(
             factor=keep_prob
         )
@@ -109,10 +109,10 @@ def attention_block(queries,
       W_q = tf.nn.dropout(W_q, keep_prob)
       W_k = tf.nn.dropout(W_k, keep_prob)
     with tf.variable_scope("query_proj"):
-      queries = tf.matmul(tf.reshape(queries, (-1, in_dim)), W_q) + b_q
+      queries = tf.matmul(tf.reshape(queries, (-1, q_in_dim)), W_q) + b_q
       queries = tf.reshape(queries, (_, Ty, attn_size))
     with tf.variable_scope("key_proj"):
-      keys = tf.matmul(tf.reshape(keys,(-1, in_dim)), W_k) + b_k
+      keys = tf.matmul(tf.reshape(keys,(-1, k_in_dim)), W_k) + b_k
       keys = tf.reshape(keys, (_,Tx, attn_size))
     with tf.variable_scope("value_proj"):
       vals = tf.layers.dense(
@@ -237,12 +237,10 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    # key_pe = utils.get_position_encoding(key_len, self.params['emb_size'])
-    # query_pe = utils.get_position_encoding(query_len, tf.to_float(query_len/key_len), self.params['emb_size'])
     position_rate = max_query_len / max_key_len
 
     key_pe = positional_encoding(max_key_len, self.params['emb_size'], position_rate=position_rate)
-    query_pe = positional_encoding(max_query_len, self.params['emb_size'])
+    query_pe = positional_encoding(max_query_len, self.params['channels'])
 
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):
@@ -261,10 +259,15 @@ class DeepVoiceDecoder(Decoder):
 
     conv_feats = mel_inputs
 
+    # Add positional Encoding + residual
+
+    key += key_pe
+
     # ----- Conv/Attn Blocks ---------------------------------------------
     with tf.variable_scope("decoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['decoder_layers']):
-
+        if layer != 0:
+          residual = conv_feats
         # filters = conv_feats.get_shape()[-1]
 
         padded_inputs = tf.pad(
@@ -273,10 +276,11 @@ class DeepVoiceDecoder(Decoder):
         )
 
         # [B, Ty, c]
-        queries = conv_bn_actv(
+        queries = conv_bn_res_bn_actv(
             layer_type="conv1d",
-            name="conv_bn_{}".format(layer+1),
+            name="conv_bn_res_bn_actv_{}".format(layer+1),
             inputs=padded_inputs,
+            res_inputs=conv_feats,
             filters=self.params['channels'],
             kernel_size=self.params['kernel_size'],
             activation_fn=tf.nn.relu,
@@ -289,9 +293,7 @@ class DeepVoiceDecoder(Decoder):
             bn_epsilon=1e-3
         )
 
-        # Add positional Encoding + residual
-        queries += query_pe + conv_feats
-        key += key_pe
+        queries += query_pe
 
         tensor, alignments = attention_block(
             queries=queries,
@@ -303,10 +305,12 @@ class DeepVoiceDecoder(Decoder):
             layer=layer
         )
 
+        if layer != 0:
+          conv_feats = tensor + residual
+        else:
+          conv_feats = tensor
         alignments_list.append(alignments)
-        
-        # residual
-        conv_feats = (queries + tensor) * tf.sqrt(0.5)
+
     decoder_output = conv_feats
 
     # ----- Decoder Postnet ---------------------------------------------
