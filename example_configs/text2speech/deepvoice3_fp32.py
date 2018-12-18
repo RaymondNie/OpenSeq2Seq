@@ -8,8 +8,8 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 
 base_model = DeepVoice
 dataset = "LJ"
-dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeechPart"
-# dataset_location = "/data/LJSpeech"
+# dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeechPart"
+dataset_location = "/data/LJSpeech"
 output_type = "mel"
 data_min = 1e-2
 trim = False
