@@ -8,8 +8,8 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 
 base_model = DeepVoice
 dataset = "LJ"
-dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeechPart"
-# dataset_location = "/data/LJSpeech"
+# dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeechPart"
+dataset_location = "/data/LJSpeech"
 output_type = "mel"
 data_min = 1e-2
 trim = False
@@ -23,10 +23,10 @@ reduction_factor == r
 '''
 
 base_params = {
-  "use_horovod": False,
-  "num_gpus": 1,
-  # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_5",
+  "use_horovod": True,
+  # "num_gpus": 1,
+  "logdir": "/results/deepvoice3_fp32",
+  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_5",
   "print_loss_steps": 100,
   "print_samples_steps": 1000,
   "save_checkpoint_steps": 1000,
