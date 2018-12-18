@@ -261,7 +261,6 @@ class DeepVoiceDecoder(Decoder):
 
     # Add positional Encoding + residual
 
-    key += key_pe
 
     # ----- Conv/Attn Blocks ---------------------------------------------
     with tf.variable_scope("decoder_layers", reuse=tf.AUTO_REUSE):
@@ -293,6 +292,7 @@ class DeepVoiceDecoder(Decoder):
             bn_epsilon=1e-3
         )
 
+        key += key_pe
         queries += query_pe
 
         tensor, alignments = attention_block(
