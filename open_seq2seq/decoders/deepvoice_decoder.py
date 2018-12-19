@@ -1,50 +1,12 @@
 import tensorflow as tf
 import numpy as np
-from open_seq2seq.parts.transformer import utils, attention_layer
+import math
+
+from open_seq2seq.parts.transformer.utils import get_position_encoding
 from .decoder import Decoder
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.rnns.attention_wrapper import _maybe_mask_score
-import math
-
-def positional_encoding(length,
-                        num_units,
-                        position_rate=1.,
-                        scope="positional_encoding",
-                        reuse=None):
-  '''Sinusoidal Positional_Encoding.
-
-  Args:
-    inputs: A 2d Tensor with shape of (N, T).
-    num_units: Output dimensionality
-    position_rate: A float. Average slope of the line in the attention distribution
-    zero_pad: Boolean. If True, all the values of the first row (id = 0) should be constant zero
-    scale: Boolean. If True, the output will be multiplied by sqrt num_units(check details from paper)
-    scope: Optional scope for `variable_scope`.
-    reuse: Boolean, whether to reuse the weights of a previous layer
-      by the same name.
-
-  Returns:
-      A 'Tensor' with one more rank than inputs's, with the dimensionality should be 'num_units'
-  '''
-  even_cols = tf.range(start=0, limit=num_units, delta=2)
-  odd_cols = tf.range(start=1, limit=num_units, delta=2)
-
-  even_cols = tf.expand_dims(tf.to_float(1.0e4 ** (even_cols / num_units)), 0) # [1, e/2]
-  odd_cols = tf.expand_dims(tf.to_float(1.0e4 ** (odd_cols / num_units)), 0) # [1, e/2]
-
-  rows = tf.expand_dims(tf.to_float(tf.range(length)) * tf.to_float(position_rate), 1) # [T, 1]
-
-  even_cols = tf.sin(tf.matmul(rows, 1 / even_cols)) # [T, e/2]
-  odd_cols = tf.cos(tf.matmul(rows, 1 / odd_cols)) # [T, e/2]
-
-  # Combine even and odd indicies
-  positional_enc = tf.reshape(
-    tf.stack([even_cols, odd_cols], axis=2),
-    [length, num_units]
-  ) # [T, e]
-
-  return positional_enc
 
 
 def attention_block(queries,
@@ -237,10 +199,17 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = max_query_len / max_key_len
+    position_rate = tf.cast(max_query_len / max_key_len, dtype=tf.float32)
 
-    key_pe = positional_encoding(max_key_len, self.params['emb_size'], position_rate=position_rate)
-    query_pe = positional_encoding(max_query_len, self.params['channels'])
+    key_pe = get_position_encoding(
+        length=max_key_len, 
+        hidden_size=self.params['emb_size'], 
+        position_rate=position_rate
+    )
+    query_pe = get_position_encoding(
+        length=max_query_len, 
+        hidden_size=self.params['channels']
+    )
 
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):

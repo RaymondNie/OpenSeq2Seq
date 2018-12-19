@@ -27,7 +27,7 @@ _NEG_INF = -1e9
 
 
 def get_position_encoding(
-    length, hidden_size, min_timescale=1.0, max_timescale=1.0e4):
+    length, hidden_size, min_timescale=1.0, max_timescale=1.0e4, position_rate=1.):
   """Return positional encoding.
 
   Calculates the position encoding as a mix of sine and cosine functions with
@@ -51,7 +51,7 @@ def get_position_encoding(
   inv_timescales = min_timescale * tf.exp(
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(position, 1) * tf.expand_dims(inv_timescales, 0)
-  signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
+  signal = tf.concat([tf.sin(position_rate * scaled_time), tf.cos(position_rate * scaled_time)], axis=1)
   return signal
 
 
