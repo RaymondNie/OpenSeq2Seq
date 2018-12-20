@@ -6,6 +6,8 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
+# WN FULLY CONNECTED WITHOUT REDUCTION FACTOR
+
 base_model = DeepVoice
 dataset = "LJ"
 # dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeechPart"
@@ -21,33 +23,40 @@ emb_size == e
 encoder_channels == c
 reduction_factor == r
 '''
+reduction_factor = None
 
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
   "logdir": "/results/deepvoice3_fp32",
-  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_5",
+  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_8",
   "print_loss_steps": 100,
   "print_samples_steps": 100,
-  "save_checkpoint_steps": 100,
+  "save_checkpoint_steps": 500,
   "save_to_tensorboard": False,
-  "optimizer": tf.contrib.opt.LazyAdamOptimizer,
-  "optimizer_params": {
-    "beta1": 0.9,
-    "beta2": 0.997,
-    "epsilon": 1e-09,
-  },
+  # "optimizer": tf.contrib.opt.LazyAdamOptimizer,
+  # "optimizer_params": {
+  #   "beta1": 0.9,
+  #   "beta2": 0.997,
+  #   "epsilon": 1e-09,
+  # },
 
-  "lr_policy": transformer_policy,
-  "lr_policy_params": {
-    "learning_rate": 2.0,
-    "warmup_steps": 8000,
-    "d_model": 128,
+  # "lr_policy": transformer_policy,
+  # "lr_policy_params": {
+  #   "learning_rate": 2.0,
+  #   "warmup_steps": 8000,
+  #   "d_model": 256,
+  # },
+  "optimizer": "Adam",
+  "optimizer_params": {},
+  "lr_policy": fixed_lr,
+  "lr_policy_params":{
+    "learning_rate": 1e-4
   },
   "summaries": ['learning_rate'],  
   "batch_size_per_gpu": 16,
   "max_steps": 200000,
-	"dtype": tf.float32,
+  "dtype": tf.float32,
   # Data Layer params
   # "data_layer": DeepVoiceDataLayer,
   # "data_layer_params": {
@@ -83,30 +92,31 @@ base_params = {
     "duration_max":1024,
     "duration_min":24,
     "exp_mag": exp_mag,
-    "reduction_factor": 1
+    "reduction_factor": reduction_factor
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
-	"encoder_params": {
+  "encoder_params": {
       "speaker_emb": None,
-      "emb_size": 128,
+      "emb_size": 256,
       "channels": 64,
       "conv_layers": 7,
       "keep_prob": 0.9, 
       "kernel_size": 5
-	},
+  },
   # Decoder params
   "decoder": DeepVoiceDecoder,
-	"decoder_params": {
+  "decoder_params": {
       "speaker_emb": None,
-      "emb_size": 128,
+      "emb_size": 256,
       "attention_size": 128,
       "prenet_layers": [128, 256],
-      "channels": 128,
+      "channels": 256,
       "decoder_layers": 4,
       "kernel_size": 5,
-      "keep_prob": 0.9
-	},
+      "keep_prob": 0.9,
+      "reduction_factor": reduction_factor
+  },
   # Loss params
   "loss": DeepVoiceLoss
 }
