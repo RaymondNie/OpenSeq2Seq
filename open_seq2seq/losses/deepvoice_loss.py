@@ -76,6 +76,7 @@ class DeepVoiceLoss(Loss):
     # Apply L1 Loss for spectrogram prediction and cross entropy for stop token
     # post_net_predictions *= mask
     # decoder_loss = tf.reduce_mean(tf.abs(mel_target - post_net_predictions))
+
     decoder_loss = tf.losses.mean_squared_error(
       labels=mel_target, predictions=post_net_predictions, weights=mask
     )

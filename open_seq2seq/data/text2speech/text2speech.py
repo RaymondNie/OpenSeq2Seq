@@ -50,7 +50,7 @@ class Text2SpeechDataLayer(DataLayer):
             'duration_max': int,
             'mel_type': ['slaney', 'htk'],
             "exp_mag": bool,
-            'reduction_factor': int
+            'reduction_factor': None
         }
     )
 
@@ -344,17 +344,6 @@ class Text2SpeechDataLayer(DataLayer):
 
       stop_token_target.set_shape([self.params['batch_size'], None])
       spec_length = tf.reshape(spec_length, [self.params['batch_size']])
-
-      # if self.params['reduction_factor'] != None:
-      #   shape = tf.shape(spec)
-      #   spec = tf.reshape(spec, [shape[0], shape[1] // self.params['reduction_factor'], -1])
-      #   spec.set_shape(
-      #     [self.params['batch_size'], None, num_audio_features * self.params['reduction_factor']]
-      #   )
-      #   print(spec.get_shape())
-      #   spec_length = spec_length // self.params['reduction_factor']
-      #   stop_token_target = stop_token_target[::self.params['reduction_factor']]
-
     else:
       text, text_length = self._iterator.get_next()
     text.set_shape([self.params['batch_size'], None])
@@ -362,6 +351,16 @@ class Text2SpeechDataLayer(DataLayer):
 
     self._input_tensors = {}
     self._input_tensors["source_tensors"] = [text, text_length]
+
+    if self.params['reduction_factor'] != None:
+      shape = tf.shape(spec)
+      spec = tf.reshape(spec, [shape[0], shape[1] // self.params['reduction_factor'], -1])
+      spec.set_shape(
+        [self.params['batch_size'], None, num_audio_features * self.params['reduction_factor']]
+      )
+      spec_length = spec_length // self.params['reduction_factor']
+      stop_token_target = stop_token_target[:, ::self.params['reduction_factor']]
+
     if self.params['mode'] != 'infer':
       self._input_tensors['target_tensors'] = [
           spec, stop_token_target, spec_length

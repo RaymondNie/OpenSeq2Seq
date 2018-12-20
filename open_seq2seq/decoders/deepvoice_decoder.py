@@ -7,7 +7,7 @@ from .decoder import Decoder
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.rnns.attention_wrapper import _maybe_mask_score
-
+from open_seq2seq.parts.convs2s import ffn_wn_layer
 
 def attention_block(queries,
                     keys,
@@ -42,40 +42,30 @@ def attention_block(queries,
   Tx = tf.shape(keys)[1]
 
   with tf.variable_scope("{}_{}".format(scope, layer), reuse=reuse):
-    W_q = tf.get_variable(
-        name="query_weights",
-        shape=[q_in_dim, attn_size],
-        initializer=tf.contrib.layers.variance_scaling_initializer(
-            factor=keep_prob
-        )
+    query_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+        in_dim=q_in_dim,
+        out_dim=attn_size,
+        dropout=keep_prob,
+        var_scope_name="query_ffn_wn",
+        mode="train",
+        normalization_type="weight_norm",
+        regularizer=None,
+        init_var=None,
+        init_weights=None
     )
-
-    b_q = tf.get_variable(
-        name="query_bias",
-        shape=[attn_size],
-        initializer=tf.zeros_initializer
+    key_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+        in_dim=k_in_dim,
+        out_dim=attn_size,
+        dropout=keep_prob,
+        var_scope_name="key_ffn_wn",
+        mode="train",
+        normalization_type="weight_norm",
+        regularizer=None,
+        init_var=None,
+        init_weights=query_fc.V.initialized_value()
     )
-
-    W_k = tf.get_variable(
-        name="key_weights",
-        initializer=W_q
-    )
-
-    b_k = tf.get_variable(
-        name="key_bias",
-        shape=[attn_size],
-        initializer=tf.zeros_initializer
-    )
-
-    if layer != 0:
-      W_q = tf.nn.dropout(W_q, keep_prob)
-      W_k = tf.nn.dropout(W_k, keep_prob)
-    with tf.variable_scope("query_proj"):
-      queries = tf.matmul(tf.reshape(queries, (-1, q_in_dim)), W_q) + b_q
-      queries = tf.reshape(queries, (_, Ty, attn_size))
-    with tf.variable_scope("key_proj"):
-      keys = tf.matmul(tf.reshape(keys,(-1, k_in_dim)), W_k) + b_k
-      keys = tf.reshape(keys, (_,Tx, attn_size))
+    queries = query_fc(queries)
+    keys = key_fc(keys)
     with tf.variable_scope("value_proj"):
       vals = tf.layers.dense(
           inputs=vals,
@@ -111,13 +101,19 @@ def attention_block(queries,
       ctx *= tf.rsqrt(tf.to_float(Tx))
 
     # Restore shape for residual connection
-    tensor = tf.layers.dense(
-        inputs=ctx,
-        units=emb_size,
-        kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-            factor=keep_prob
-        )
+    output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+        in_dim=attn_size,
+        out_dim=emb_size,
+        dropout=keep_prob,
+        var_scope_name="attn_output_ffn_wn",
+        mode="train",
+        normalization_type="weight_norm",
+        regularizer=None,
+        init_var=None,
+        init_weights=None
     )
+    tensor = output_fc(ctx)
+
     # returns the alignment of the first one
     alignments = alignments[0]  # (Tx, Ty)
 
@@ -146,7 +142,8 @@ class DeepVoiceDecoder(Decoder):
   def get_optional_params():
     return dict(
         Decoder.get_optional_params(), **{
-            'speaker_emb': None
+            'speaker_emb': None,
+            'reduction_factor': None
         }
     )
 
@@ -174,15 +171,14 @@ class DeepVoiceDecoder(Decoder):
 
     regularizer = self.params.get('regularizer', None)
     alignments_list = []
-
-    # TODO: add predicting multiple frames (r)
+    reduction_factor = self.params['reduction_factor']
+    if reduction_factor == None:
+      reduction_factor = 1
     key = input_dict['encoder_output']['keys'] # [B, Tx, e]
     value = input_dict['encoder_output']['vals'] # [B, Tx, e]
     key_lens = input_dict['encoder_output']['key_lens']
-
     # TODO: support speaker embedding
     speaker_emb = self.params.get('speaker_emb', None)
-
     training = (self._mode == 'train')
     
     if training:
@@ -194,7 +190,11 @@ class DeepVoiceDecoder(Decoder):
                                                     input_dict else None
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
-      
+    
+
+    # Dropout on mel_input
+    mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
+
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
@@ -213,30 +213,33 @@ class DeepVoiceDecoder(Decoder):
 
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):
-      for i, num in enumerate((self.params['prenet_layers'])):
+      for i, num in enumerate(self.params['prenet_layers']):
         mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
 
-        # [B, Ty, e]
-        mel_inputs = tf.layers.dense(
-            inputs=mel_inputs,
-            units=num,
-            activation=tf.nn.relu,
-            kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-                factor=self.params['keep_prob']
-            )
+        if i == 0:
+          in_dim = self._n_feats * reduction_factor
+        else:
+          in_dim = self.params['prenet_layers'][i-1]
+
+        dense_layer = ffn_wn_layer.FeedFowardNetworkNormalized(
+            in_dim=in_dim,
+            out_dim=num,
+            dropout=self.params['keep_prob'],
+            var_scope_name="decoder_prenet_fc_{}".format(i),
+            mode="train",
+            normalization_type="weight_norm",
+            regularizer=None,
+            init_var=None,
+            init_weights=None
         )
+        mel_inputs = tf.nn.relu(dense_layer(mel_inputs))
 
+    # [B, Ty, e]
     conv_feats = mel_inputs
-
-    # Add positional Encoding + residual
-
 
     # ----- Conv/Attn Blocks ---------------------------------------------
     with tf.variable_scope("decoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['decoder_layers']):
-        if layer != 0:
-          residual = conv_feats
-        # filters = conv_feats.get_shape()[-1]
 
         padded_inputs = tf.pad(
             conv_feats,
@@ -261,6 +264,9 @@ class DeepVoiceDecoder(Decoder):
             bn_epsilon=1e-3
         )
 
+        queries *= tf.sqrt(0.5)
+        residual = queries
+
         key += key_pe
         queries += query_pe
 
@@ -274,32 +280,38 @@ class DeepVoiceDecoder(Decoder):
             layer=layer
         )
 
-        if layer != 0:
-          conv_feats = tensor + residual
-        else:
-          conv_feats = tensor
+        conv_feats = (tensor + residual) * tf.sqrt(0.5)
         alignments_list.append(alignments)
 
     decoder_output = conv_feats
 
     # ----- Decoder Postnet ---------------------------------------------
-    stop_token_logits = tf.layers.dense(
-        inputs=decoder_output,
-        units=1,
-        kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-            factor=self.params['keep_prob']
-        ),
-        name="stop_token_proj",
+    stop_token_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+        in_dim=self.params['emb_size'],
+        out_dim=1,
+        dropout=self.params['keep_prob'],
+        var_scope_name="stop_token_proj",
+        mode="train",
+        normalization_type="weight_norm",
+        regularizer=None,
+        init_var=None,
+        init_weights=None
     )
+    stop_token_logits = stop_token_fc(decoder_output)
 
-    mel_logits = tf.layers.dense(
-        inputs=decoder_output,
-        units=self._n_feats,
-        kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-            factor=self.params['keep_prob']
-        ),
-        name="mel_prediction_proj",
-    )
+    mel_output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+        in_dim=self.params['emb_size'],
+        out_dim=self._n_feats * reduction_factor,
+        dropout=self.params['keep_prob'],
+        var_scope_name="mel_proj",
+        mode="train",
+        normalization_type="weight_norm",
+        regularizer=None,
+        init_var=None,
+        init_weights=None
+    )    
+    mel_logits = mel_output_fc(decoder_output)
+
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
     return {

@@ -22,7 +22,8 @@ class FeedFowardNetworkNormalized(tf.layers.Layer):
                mode,
                normalization_type="weight_norm",
                regularizer=None,
-               init_var=None
+               init_var=None,
+               init_weights=None,
                ):
     """initializes the linear layer.
     This layer projects from in_dim-dimenstional space to out_dim-dimentional space.
@@ -77,13 +78,20 @@ class FeedFowardNetworkNormalized(tf.layers.Layer):
         V_std = init_var
 
       if self.wn_enabled:
-        V_initializer = \
-          tf.random_normal_initializer(mean=0, stddev=V_std)
-        self.V = tf.get_variable(
-            'V',
-            shape=[in_dim, out_dim],
-            initializer=V_initializer,
-            trainable=True)
+        if init_weights != None:
+          self.V = tf.get_variable(
+              'V',
+              initializer=init_weights,
+              trainable=True
+          )
+        else:
+          V_initializer = \
+            tf.random_normal_initializer(mean=0, stddev=V_std)
+          self.V = tf.get_variable(
+              'V',
+              shape=[in_dim, out_dim],
+              initializer=tf.random_normal_initializer(mean=0, stddev=V_std),
+              trainable=True)
         self.V_norm = tf.norm(self.V.initialized_value(), axis=0)
         self.g = tf.get_variable('g', initializer=self.V_norm, trainable=True)
       else:

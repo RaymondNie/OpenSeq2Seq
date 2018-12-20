@@ -12,6 +12,7 @@ from open_seq2seq.parts.rnns.utils import single_cell
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.convs2s.utils import gated_linear_units
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
+from open_seq2seq.parts.convs2s import ffn_wn_layer
 
 from .encoder import Encoder
 
@@ -65,6 +66,8 @@ class DeepVoiceEncoder(Encoder):
     regularizer = self.params.get('regularizer', None)
     src_vocab_size = self._model.get_data_layer().params['src_vocab_size']
     key_lens = input_dict['source_tensors'][1]
+
+
     # ----- Text embedding -----------------------------------------------
     with tf.variable_scope("embedding"):
       text = input_dict['source_tensors'][0]
@@ -103,13 +106,18 @@ class DeepVoiceEncoder(Encoder):
       #   inputs = tf.add(embedded_text_ids, speaker_fc1);
 
       # [B, Tx, c]
-      embedding_proj = tf.layers.dense(
-          inputs=embedded_inputs,
-          units=self.params['emb_size'],
-          kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-              factor=self.params['keep_prob']
-          )
+      embedding_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+          in_dim=self.params['emb_size'],
+          out_dim=self.params['emb_size'],
+          dropout=self.params['keep_prob'],
+          var_scope_name="embedding_fc",
+          mode="train",
+          normalization_type="weight_norm",
+          regularizer=None,
+          init_var=None,
+          init_weights=None
       )
+      embedding_proj = embedding_fc(embedded_inputs)
 
     conv_feats = embedding_proj
 
@@ -142,21 +150,26 @@ class DeepVoiceEncoder(Encoder):
             bn_epsilon=1e-3
         )
 
+        conv_feats *= tf.sqrt(0.5)
+
     conv_output = conv_feats
 
     # ----- Encoder PostNet -----------------------------------------------
     with tf.variable_scope("encoder_postnet"):
       # [B, Tx, e]
-
-      conv_proj = tf.layers.dense(
-          inputs=conv_output,
-          units=self.params['emb_size'],
-          kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-              factor=self.params['keep_prob']
-          )
+      encoder_postnet_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+          in_dim=self.params['channels'],
+          out_dim=self.params['emb_size'],
+          dropout=self.params['keep_prob'],
+          var_scope_name="encoder_postnet_fc",
+          mode="train",
+          normalization_type="weight_norm",
+          regularizer=None,
+          init_var=None,
+          init_weights=None
       )
 
-      keys = conv_proj
+      keys = encoder_postnet_fc(conv_output)
       vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
 
     return {"keys": keys, "vals": vals, "key_lens": key_lens}
