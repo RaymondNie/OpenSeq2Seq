@@ -76,7 +76,6 @@ def attention_block(queries,
       )
     with tf.variable_scope("alignments"):
       attention_weights = tf.matmul(queries, keys, transpose_b=True)  # (N, Ty/r, Tx)
-      # attention_weights = tf.Print(attention_weights, [attention_weights[0,1,key_lens[0]-1:]], message="b4 mask")
 
       # Key Masking
       Tx = tf.shape(attention_weights)[-1]
@@ -88,10 +87,7 @@ def attention_block(queries,
 
       score_mask = tf.tile(tf.expand_dims(score_mask, 1), [1, tf.shape(queries)[1], 1]) # (N, Ty, Tx)
       score_mask_values = -np.inf * tf.ones_like(attention_weights)
-
       attention_weights = tf.where(score_mask, attention_weights, score_mask_values)
-      # attention_weights = tf.Print(attention_weights, [attention_weights[0,1,key_lens[0]-1:]], message="after mask")
-
       alignments = tf.nn.softmax(attention_weights)
       max_attentions = tf.argmax(alignments, -1) # (N, Ty/r)
 
@@ -168,15 +164,17 @@ class DeepVoiceDecoder(Decoder):
       dict: A python dictionary containing:
         **** TODO
     """
-
     regularizer = self.params.get('regularizer', None)
     alignments_list = []
     reduction_factor = self.params['reduction_factor']
+
     if reduction_factor == None:
       reduction_factor = 1
+
     key = input_dict['encoder_output']['keys'] # [B, Tx, e]
     value = input_dict['encoder_output']['vals'] # [B, Tx, e]
     key_lens = input_dict['encoder_output']['key_lens']
+    
     # TODO: support speaker embedding
     speaker_emb = self.params.get('speaker_emb', None)
     training = (self._mode == 'train')
@@ -298,6 +296,7 @@ class DeepVoiceDecoder(Decoder):
         init_weights=None
     )
     stop_token_logits = stop_token_fc(decoder_output)
+    stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
     mel_output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
         in_dim=self.params['emb_size'],
@@ -311,8 +310,6 @@ class DeepVoiceDecoder(Decoder):
         init_weights=None
     )    
     mel_logits = mel_output_fc(decoder_output)
-
-    stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
     return {
         'outputs': [mel_logits, stop_token_predictions, alignments_list, key_lens],
