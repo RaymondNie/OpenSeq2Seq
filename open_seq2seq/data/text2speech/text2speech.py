@@ -10,7 +10,7 @@ import tensorflow as tf
 import pandas as pd
 
 from six import string_types
-
+from random import random
 from open_seq2seq.data.data_layer import DataLayer
 from open_seq2seq.data.utils import load_pre_existing_vocabulary
 from .speech_utils import get_speech_features_from_file,\
@@ -50,7 +50,8 @@ class Text2SpeechDataLayer(DataLayer):
             'duration_max': int,
             'mel_type': ['slaney', 'htk'],
             "exp_mag": bool,
-            'reduction_factor': None
+            'reduction_factor': None,
+            'mixed_phoneme_char': None
         }
     )
 
@@ -111,7 +112,14 @@ class Text2SpeechDataLayer(DataLayer):
         worker_id
     )
 
-    names = ['wav_filename', 'raw_transcript', 'transcript']
+    if self.params.get('mixed_phoneme_char', False):
+      print("test1")
+      # If data supports a phoneme transcript (For DeepVoice3)
+      names = ['wav_filename', 'raw_transcript', 'transcript', 'phoneme_transcript']
+    else:
+      print("test2")
+      names = ['wav_filename', 'raw_transcript', 'transcript']
+
     sep = '\x7c'
     header = None
 
@@ -130,6 +138,11 @@ class Text2SpeechDataLayer(DataLayer):
         min_idx=3,
         read_chars=True,
     )
+
+    if self.params.get('mixed_phoneme_char', False):
+      self.params['char2idx']['%'] = 0
+      self.params['char2idx']['/'] = 0
+
     # Add the pad, start, and end chars
     self.params['char2idx']['<p>'] = 0
     self.params['char2idx']['<s>'] = 1
@@ -228,7 +241,10 @@ class Text2SpeechDataLayer(DataLayer):
         self._files = self._files.append(files)
 
     if self.params['mode'] != 'infer':
-      cols = ['wav_filename', 'transcript']
+      if self.params.get('mixed_phoneme_char', False):
+        cols = ['wav_filename', 'transcript', 'phoneme_transcript']
+      else:
+        cols = ['wav_filename', 'transcript']
     else:
       cols = 'transcript'
 
@@ -378,7 +394,17 @@ class Text2SpeechDataLayer(DataLayer):
       length of target sequence.
 
     """
-    audio_filename, transcript = element
+    if self.params.get('mixed_phoneme_char', False):
+      audio_filename, transcript, phoneme_transcript = element
+      # Send phoneme embedding with some fixed probability
+      if random() < 0.2:
+        transcript = phoneme_transcript
+      else:
+        transcript = transcript
+
+    else:
+      audio_filename, transcript = element
+
     transcript = transcript.lower()
     if six.PY2:
       audio_filename = unicode(audio_filename, "utf-8")
