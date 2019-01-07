@@ -85,9 +85,8 @@ base_params = {
   },
   "initializer": tf.contrib.layers.xavier_initializer,
 
-  "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
+  "summaries": ['learning_rate', 'variables', 'gradients', 
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
-
   "encoder": Tacotron2Encoder,
   "encoder_params": {
     "cnn_dropout_prob": 0.5,

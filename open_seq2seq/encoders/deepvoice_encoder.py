@@ -87,24 +87,6 @@ class DeepVoiceEncoder(Encoder):
 
     # ----- Encoder PreNet -----------------------------------------------
     with tf.variable_scope("encoder_prenet"):
-      # if self.params['speaker_emb'] != None:
-      #   speaker_fc1 = tf.contrib.layers.fully_connected(
-      #       self.params['speaker_emb'],
-      #       self.params['emb_size'],
-      #       weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-      #                           factor=self.params['keep_prob']),
-      #       activation_fn=tf.nn.softsign
-      #   )
-      #   speaker_fc2 = tf.contrib.layers.fully_connected(
-      #       self.params['speaker_emb'],
-      #       self.params['emb_size'],
-      #       weights_initializer=tf.contrib.layers.variance_scaling_initializer(
-      #           factor=self.params['keep_prob']
-      #       ),
-      #       activation_fn=tf.nn.softsign
-      #   )
-      #   inputs = tf.add(embedded_text_ids, speaker_fc1);
-
       # [B, Tx, c]
       embedding_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
           in_dim=self.params['emb_size'],

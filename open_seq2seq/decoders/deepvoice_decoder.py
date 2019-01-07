@@ -16,6 +16,7 @@ def attention_block(queries,
                     emb_size,
                     key_lens,
                     layer,
+                    prev_max_attentions=None,
                     keep_prob=0.95,
                     last_attended=None,
                     training=False,
@@ -46,34 +47,32 @@ def attention_block(queries,
         in_dim=q_in_dim,
         out_dim=attn_size,
         dropout=keep_prob,
-        var_scope_name="query_ffn_wn",
+        var_scope_name="query_fc",
         mode="train",
         normalization_type="weight_norm",
-        regularizer=None,
-        init_var=None,
-        init_weights=None
     )
     key_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
         in_dim=k_in_dim,
         out_dim=attn_size,
         dropout=keep_prob,
-        var_scope_name="key_ffn_wn",
+        var_scope_name="key_fc",
         mode="train",
         normalization_type="weight_norm",
-        regularizer=None,
-        init_var=None,
         init_weights=query_fc.V.initialized_value()
     )
+    val_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+        in_dim=k_in_dim,
+        out_dim=attn_size,
+        dropout=keep_prob,
+        var_scope_name="val_fc",
+        mode="train",
+        normalization_type="weight_norm",
+    )
+
     queries = query_fc(queries)
     keys = key_fc(keys)
-    with tf.variable_scope("value_proj"):
-      vals = tf.layers.dense(
-          inputs=vals,
-          units=attn_size,
-          kernel_initializer=tf.contrib.layers.variance_scaling_initializer(
-              factor=keep_prob
-          )
-      )
+    vals = val_fc(vals)
+
     with tf.variable_scope("alignments"):
       attention_weights = tf.matmul(queries, keys, transpose_b=True)  # (N, Ty/r, Tx)
 
@@ -84,6 +83,8 @@ def attention_block(queries,
           key_lens, 
           maxlen=tf.shape(keys)[1]
       ) # (N, Tx)
+
+      # TODO: Enforce monotonic attention for inference.
 
       score_mask = tf.tile(tf.expand_dims(score_mask, 1), [1, tf.shape(queries)[1], 1]) # (N, Ty, Tx)
       score_mask_values = -np.inf * tf.ones_like(attention_weights)
@@ -104,9 +105,6 @@ def attention_block(queries,
         var_scope_name="attn_output_ffn_wn",
         mode="train",
         normalization_type="weight_norm",
-        regularizer=None,
-        init_var=None,
-        init_weights=None
     )
     tensor = output_fc(ctx)
 
@@ -225,10 +223,7 @@ class DeepVoiceDecoder(Decoder):
             dropout=self.params['keep_prob'],
             var_scope_name="decoder_prenet_fc_{}".format(i),
             mode="train",
-            normalization_type="weight_norm",
-            regularizer=None,
-            init_var=None,
-            init_weights=None
+            normalization_type="weight_norm"
         )
         mel_inputs = tf.nn.relu(dense_layer(mel_inputs))
 
@@ -264,7 +259,6 @@ class DeepVoiceDecoder(Decoder):
 
         queries *= tf.sqrt(0.5)
         residual = queries
-
         key += key_pe
         queries += query_pe
 
@@ -290,11 +284,9 @@ class DeepVoiceDecoder(Decoder):
         dropout=self.params['keep_prob'],
         var_scope_name="stop_token_proj",
         mode="train",
-        normalization_type="weight_norm",
-        regularizer=None,
-        init_var=None,
-        init_weights=None
+        normalization_type="weight_norm"
     )
+
     stop_token_logits = stop_token_fc(decoder_output)
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
@@ -304,10 +296,7 @@ class DeepVoiceDecoder(Decoder):
         dropout=self.params['keep_prob'],
         var_scope_name="mel_proj",
         mode="train",
-        normalization_type="weight_norm",
-        regularizer=None,
-        init_var=None,
-        init_weights=None
+        normalization_type="weight_norm"
     )    
     mel_logits = mel_output_fc(decoder_output)
 

@@ -12,7 +12,7 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 base_model = Text2Speech
 
 dataset = "LJ"
-dataset_location = "/data/speech/LJSpeech"
+dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech"
 output_type = "both"
 
 if dataset == "MAILABS":
