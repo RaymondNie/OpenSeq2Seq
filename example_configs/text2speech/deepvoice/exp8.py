@@ -94,7 +94,7 @@ base_params = {
     "duration_min":24,
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
-    "mixed_phoneme_char": False
+    "mixed_phoneme_char_prob": 0
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
