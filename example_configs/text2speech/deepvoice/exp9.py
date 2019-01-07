@@ -6,7 +6,7 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
-# WN FULLY CONNECTED WITH REDUCTION FACTOR with max_grad_norm 1. with mixed char/phoneme
+# WN Fully connected max grad norm 1. on mixed char/phoneme
 
 base_model = DeepVoice
 dataset = "LJ"
@@ -75,7 +75,7 @@ base_params = {
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
-      os.path.join(dataset_location, "train.csv"),
+      os.path.join(dataset_location, "train_processed.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
@@ -94,7 +94,7 @@ base_params = {
     "duration_min":24,
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
-    "mixed_phoneme_char": False
+    "mixed_phoneme_char_prob": 0.5
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,

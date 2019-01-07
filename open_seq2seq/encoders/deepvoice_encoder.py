@@ -71,7 +71,6 @@ class DeepVoiceEncoder(Encoder):
     # ----- Text embedding -----------------------------------------------
     with tf.variable_scope("embedding"):
       text = input_dict['source_tensors'][0]
-
       enc_emb_w = tf.get_variable(
           "text_embeddings", 
           [src_vocab_size, self.params['emb_size']],

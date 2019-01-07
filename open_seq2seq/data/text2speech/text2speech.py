@@ -51,7 +51,7 @@ class Text2SpeechDataLayer(DataLayer):
             'mel_type': ['slaney', 'htk'],
             "exp_mag": bool,
             'reduction_factor': None,
-            'mixed_phoneme_char': None
+            'mixed_phoneme_char_prob': float
         }
     )
 
@@ -112,14 +112,13 @@ class Text2SpeechDataLayer(DataLayer):
         worker_id
     )
 
-    if self.params.get('mixed_phoneme_char', False):
-      print("test1")
+    if self.params.get('mixed_phoneme_char_prob', 0) != 0:
       # If data supports a phoneme transcript (For DeepVoice3)
       names = ['wav_filename', 'raw_transcript', 'transcript', 'phoneme_transcript']
+      min_idx = 5
     else:
-      print("test2")
       names = ['wav_filename', 'raw_transcript', 'transcript']
-
+      min_idx = 3
     sep = '\x7c'
     header = None
 
@@ -135,13 +134,13 @@ class Text2SpeechDataLayer(DataLayer):
     # Character level vocab
     self.params['char2idx'] = load_pre_existing_vocabulary(
         self.params['vocab_file'],
-        min_idx=3,
+        min_idx=min_idx,
         read_chars=True,
     )
 
-    if self.params.get('mixed_phoneme_char', False):
-      self.params['char2idx']['%'] = 0
-      self.params['char2idx']['/'] = 0
+    if self.params.get('mixed_phoneme_char_prob', 0) != 0:
+      self.params['char2idx']['%'] = 3
+      self.params['char2idx']['/'] = 4
 
     # Add the pad, start, and end chars
     self.params['char2idx']['<p>'] = 0
@@ -241,7 +240,7 @@ class Text2SpeechDataLayer(DataLayer):
         self._files = self._files.append(files)
 
     if self.params['mode'] != 'infer':
-      if self.params.get('mixed_phoneme_char', False):
+      if self.params.get('mixed_phoneme_char_prob', 0) != 0:
         cols = ['wav_filename', 'transcript', 'phoneme_transcript']
       else:
         cols = ['wav_filename', 'transcript']
@@ -394,14 +393,13 @@ class Text2SpeechDataLayer(DataLayer):
       length of target sequence.
 
     """
-    if self.params.get('mixed_phoneme_char', False):
+    if self.params.get('mixed_phoneme_char_prob', 0) != 0:
       audio_filename, transcript, phoneme_transcript = element
       # Send phoneme embedding with some fixed probability
       if random() < 0.2:
         transcript = phoneme_transcript
       else:
         transcript = transcript
-
     else:
       audio_filename, transcript = element
 
