@@ -396,7 +396,7 @@ class Text2SpeechDataLayer(DataLayer):
     if self.params.get('mixed_phoneme_char_prob', 0) != 0:
       audio_filename, transcript, phoneme_transcript = element
       # Send phoneme embedding with some fixed probability
-      if random() < 0.2:
+      if random() < self.params.get('mixed_phoneme_char_prob', 0):
         transcript = phoneme_transcript
       else:
         transcript = transcript
