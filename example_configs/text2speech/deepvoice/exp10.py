@@ -57,7 +57,7 @@ base_params = {
   "batch_size_per_gpu": 16,
   "max_steps": 200000,
 	"dtype": tf.float32,
-  "max_grad_norm":100.,
+  "max_grad_norm":1.,
   # Data Layer params
   # "data_layer": DeepVoiceDataLayer,
   # "data_layer_params": {
