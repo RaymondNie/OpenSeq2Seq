@@ -23,7 +23,7 @@ emb_size == e
 encoder_channels == c
 reduction_factor == r
 '''
-reduction_factor = 4
+reduction_factor = None
 
 base_params = {
   "use_horovod": False,
