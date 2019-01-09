@@ -198,7 +198,10 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = tf.cast(max_query_len / max_key_len, dtype=tf.float32)
+    if training:
+        position_rate = tf.cast(max_query_len / max_key_len, dtype=tf.float32)
+    else:
+        position_rate = 1.29
 
     key_pe = get_position_encoding(
         length=max_key_len, 
@@ -272,7 +275,8 @@ class DeepVoiceDecoder(Decoder):
             attn_size=self.params['attention_size'],
             emb_size=self.params['emb_size'],
             key_lens=key_lens,
-            layer=layer
+            layer=layer,
+            training=training
         )
 
         conv_feats = (tensor + residual) * tf.sqrt(0.5)

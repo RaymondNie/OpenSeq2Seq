@@ -8,7 +8,7 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 
 base_model = DeepVoice
 dataset = "LJ"
-dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech"
+dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
 # dataset_location = "/data/LJSpeech"
 output_type = "mel"
 data_min = 1e-2
@@ -27,7 +27,7 @@ base_params = {
   "use_horovod": False,
   "num_gpus": 1,
   # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/deepvoice3_fp32_10",
+  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test",
   "print_loss_steps": 100,
   "print_samples_steps": 100,
   "save_checkpoint_steps": 100,
@@ -39,18 +39,18 @@ base_params = {
   #   "epsilon": 1e-09,
   # },
 
-  # "lr_policy": transformer_policy,
-  # "lr_policy_params": {
-  #   "learning_rate": 2.0,
-  #   "warmup_steps": 8000,
-  #   "d_model": 256,
-  # },
+  "lr_policy": transformer_policy,
+  "lr_policy_params": {
+    "learning_rate": 2.0,
+    "warmup_steps": 8000,
+    "d_model": 256,
+  },
   "optimizer": "Adam",
   "optimizer_params": {},
-  "lr_policy": fixed_lr,
-  "lr_policy_params":{
-    "learning_rate": 1e-4
-  },
+  # "lr_policy": fixed_lr,
+  # "lr_policy_params":{
+  #   "learning_rate": 1e-4
+  # },
   "summaries": ['learning_rate'],  
   "batch_size_per_gpu": 16,
   "max_steps": 200000,
@@ -73,7 +73,7 @@ base_params = {
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
-      os.path.join(dataset_location, "test_processed.csv"),
+      os.path.join(dataset_location, "test.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
@@ -92,7 +92,7 @@ base_params = {
     "duration_min":24,
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
-    "mixed_phoneme_char": True
+    "mixed_phoneme_char_prob": 0.
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
