@@ -134,6 +134,8 @@ class DeepVoice(EncoderDecoderModel):
   def finalize_evaluation(self, results_per_batch, training_step=None):
     return {}
 
+  def infer(self, input_values, output_values):
+    return output_values[1][-1]
 
   def finalize_inference(self, results_per_batch, output_file):
     return {}

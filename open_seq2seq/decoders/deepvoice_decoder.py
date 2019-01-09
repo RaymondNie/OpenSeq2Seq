@@ -19,7 +19,7 @@ def attention_block(queries,
                     prev_max_attentions=None,
                     keep_prob=0.95,
                     last_attended=None,
-                    training=False,
+                    training=True,
                     mononotic_attention=False,
                     window_size=3,
                     scope="attention_block",
@@ -77,18 +77,20 @@ def attention_block(queries,
       attention_weights = tf.matmul(queries, keys, transpose_b=True)  # (N, Ty/r, Tx)
 
       # Key Masking
-      Tx = tf.shape(attention_weights)[-1]
+      mask_values = -np.inf * tf.ones_like(attention_weights)
 
-      score_mask = tf.sequence_mask(
-          key_lens, 
-          maxlen=tf.shape(keys)[1]
-      ) # (N, Tx)
+      if training:
+        score_mask = tf.sequence_mask(key_lens, maxlen=Tx) # (N, Tx)
+        score_mask = tf.tile(tf.expand_dims(score_mask, 1), [1, Ty, 1]) # (N, Ty, Tx)
+        attention_weights = tf.where(score_mask, attention_weights, mask_values)
+      else: # infer
+        # Create a mask that starts from the last attended-to + window size
+        mask = tf.sequence_mask(prev_max_attentions, Tx)
+        reverse_mask = tf.sequence_mask(Tx - prev_max_attentions - window_size, Tx)[:,::-1]
+        infer_mask = tf.logical_or(mask, reverse_mask)
+        infer_mask = tf.tile(tf.expand_dims(infer_mask, 1), [1, Ty])
+        attention_weights = tf.where(tf.where(infer_mask, False), attention_weights, mask_values)
 
-      # TODO: Enforce monotonic attention for inference.
-
-      score_mask = tf.tile(tf.expand_dims(score_mask, 1), [1, tf.shape(queries)[1], 1]) # (N, Ty, Tx)
-      score_mask_values = -np.inf * tf.ones_like(attention_weights)
-      attention_weights = tf.where(score_mask, attention_weights, score_mask_values)
       alignments = tf.nn.softmax(attention_weights)
       max_attentions = tf.argmax(alignments, -1) # (N, Ty/r)
 
@@ -111,13 +113,12 @@ def attention_block(queries,
     # returns the alignment of the first one
     alignments = alignments[0]  # (Tx, Ty)
 
-  return tensor, alignments
+  return tensor, alignments, max_attentions
 
 class DeepVoiceDecoder(Decoder):
   """
   Deepvoice 3 Decoder
   """
-
   @staticmethod
   def get_required_params():
     return dict(
@@ -137,7 +138,8 @@ class DeepVoiceDecoder(Decoder):
     return dict(
         Decoder.get_optional_params(), **{
             'speaker_emb': None,
-            'reduction_factor': None
+            'reduction_factor': None,
+            'window_size': int
         }
     )
 
@@ -164,6 +166,7 @@ class DeepVoiceDecoder(Decoder):
     """
     regularizer = self.params.get('regularizer', None)
     alignments_list = []
+    max_attentions_list = []
     reduction_factor = self.params['reduction_factor']
 
     if reduction_factor == None:
@@ -262,7 +265,7 @@ class DeepVoiceDecoder(Decoder):
         key += key_pe
         queries += query_pe
 
-        tensor, alignments = attention_block(
+        tensor, alignments, max_attentions = attention_block(
             queries=queries,
             keys=key,
             vals=value,
@@ -274,7 +277,7 @@ class DeepVoiceDecoder(Decoder):
 
         conv_feats = (tensor + residual) * tf.sqrt(0.5)
         alignments_list.append(alignments)
-
+        max_attentions_list.append(max_attentions)
     decoder_output = conv_feats
 
     # ----- Decoder Postnet ---------------------------------------------
@@ -301,5 +304,11 @@ class DeepVoiceDecoder(Decoder):
     mel_logits = mel_output_fc(decoder_output)
 
     return {
-        'outputs': [mel_logits, stop_token_predictions, alignments_list, key_lens],
+        'outputs': [
+            mel_logits, 
+            stop_token_predictions, 
+            alignments_list,
+            key_lens,
+            max_attentions_list
+        ],
     }
