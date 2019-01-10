@@ -6,8 +6,6 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
-# WN FULLY CONNECTED with max_grad_norm 1. on LJSPEECH test with train audio
-
 base_model = DeepVoice
 dataset = "LJ"
 # dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
@@ -28,8 +26,8 @@ keep_prob = 0.9
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
-  # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test",
+  "logdir": "/results/deepvoice3_fp32",
+  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/train_audio",
   "print_loss_steps": 500,
   "print_samples_steps": 500,
   "save_checkpoint_steps": 500,
@@ -40,7 +38,6 @@ base_params = {
   #   "beta2": 0.997,
   #   "epsilon": 1e-09,
   # },
-
   # "lr_policy": transformer_policy,
   # "lr_policy_params": {
   #   "learning_rate": 2.0,
@@ -48,19 +45,15 @@ base_params = {
   #   "d_model": 256,
   # },
   "optimizer": "Adam",
-  "optimizer_params": {
-    "beta1": 0.9,
-    "beta2": 0.997,
-    "epsilon": 1e-09,
-  },
+  "optimizer_params": {},
   "lr_policy": fixed_lr,
   "lr_policy_params":{
     "learning_rate": 1e-4
   },
   "summaries": ['learning_rate'],  
-  "batch_size_per_gpu": 64,
+  "batch_size_per_gpu": 32,
   "max_steps": 200000,
-	"dtype": tf.float32,
+  "dtype": tf.float32,
   "max_grad_norm":1.,
   # Data Layer params
   # "data_layer": DeepVoiceDataLayer,
@@ -98,21 +91,22 @@ base_params = {
     "duration_min":24,
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
-    "mixed_phoneme_char_prob": 0.
+    "mixed_phoneme_char_prob": 0.,
+    "deepvoice": True
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
-	"encoder_params": {
+  "encoder_params": {
       "speaker_emb": None,
       "emb_size": 256,
       "channels": 64,
       "conv_layers": 7,
       "keep_prob": keep_prob, 
       "kernel_size": 5
-	},
+  },
   # Decoder params
   "decoder": DeepVoiceDecoder,
-	"decoder_params": {
+  "decoder_params": {
       "speaker_emb": None,
       "emb_size": 256,
       "attention_size": 128,
@@ -122,7 +116,7 @@ base_params = {
       "kernel_size": 5,
       "keep_prob": keep_prob,
       "reduction_factor": reduction_factor
-	},
+  },
   # Loss params
   "loss": DeepVoiceLoss
 }
