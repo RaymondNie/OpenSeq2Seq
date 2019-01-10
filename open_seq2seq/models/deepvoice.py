@@ -7,7 +7,7 @@ mpl.use('Agg')
 from six import BytesIO
 from .encoder_decoder import EncoderDecoderModel
 from matplotlib import pyplot as plt
-from .text2speech import plot_spectrograms
+from .text2speech import plot_spectrograms, save_audio
 
 def plot_alignment(alignments, gs, logdir, save_to_tensorboard=False):
     """Plots the alignment
@@ -75,6 +75,7 @@ class DeepVoice(EncoderDecoderModel):
     stop_prediction_sample = stop_prediction[0]
     target_mel_sample = target_mel_output[0]
     stop_target_sample = stop_target[0]
+    spec_len = output_values[4][0]
 
     key_len_sample = output_values[3][1]
 
@@ -122,6 +123,16 @@ class DeepVoice(EncoderDecoderModel):
         training_step
     )
 
+    predicted_mel_sample = predicted_mel_sample[:spec_len - 1, :]
+    predicted_mel_sample = self.get_data_layer().get_magnitude_spec(predicted_mel_sample, is_mel=True)
+    wav_summary = save_audio(
+        predicted_mel_sample,
+        self.params["logdir"],
+        training_step,
+        n_fft=self.get_data_layer().n_fft,
+        sampling_rate=self.get_data_layer().sampling_rate,
+        save_format="disk"
+    )
 
     if self.params['save_to_tensorboard']:
       save_format = "tensorboard"

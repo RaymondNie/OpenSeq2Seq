@@ -51,7 +51,8 @@ class Text2SpeechDataLayer(DataLayer):
             'mel_type': ['slaney', 'htk'],
             "exp_mag": bool,
             'reduction_factor': None,
-            'mixed_phoneme_char_prob': float
+            'mixed_phoneme_char_prob': float,
+            'deepvoice': bool
         }
     )
 
@@ -123,10 +124,10 @@ class Text2SpeechDataLayer(DataLayer):
     header = None
 
     if self.params["dataset"] == "LJ":
-      # self._sampling_rate = 22050
-      # self._n_fft = 1024
-      self._sampling_rate = 48000
-      self._n_fft = 2400
+      self._sampling_rate = 22050
+      self._n_fft = 1024
+      # self._sampling_rate = 48000
+      # self._n_fft = 2400
     elif self.params["dataset"] == "MAILABS":
       self._sampling_rate = 16000
       self._n_fft = 800
@@ -571,6 +572,30 @@ class Text2SpeechDataLayer(DataLayer):
 
     self._input_tensors = {}
     self._input_tensors["source_tensors"] = [self._text, self._text_length]
+
+    if self.params['mode'] == 'infer' and self.params['deepvoice']:
+      self.spec = tf.placeholder(
+          dtype=tf.float32,
+          shape=[
+              self.params["batch_size"],
+              None,
+              self.params["num_audio_features"]
+          ]
+      )
+      self.spec_len = tf.placeholder(
+          dtype=tf.int32,
+          shape=[self.params["batch_size"]]
+      )
+      self.prev_max_attention = tf.placeholder(
+          dtype=tf.float32,
+          shape=[
+              self.params["batch_size"],
+              None
+          ]
+      )
+
+      self._input_tensors["source_tensors"].extend([self.spec, self.spec_len, self.prev_max_attention])
+
 
   def create_feed_dict(self, model_in):
     """ Creates the feed dict for interactive infer

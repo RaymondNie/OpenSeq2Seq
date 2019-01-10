@@ -27,7 +27,7 @@ base_params = {
   "use_horovod": False,
   "num_gpus": 1,
   # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test",
+  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/train_audio",
   "print_loss_steps": 100,
   "print_samples_steps": 100,
   "save_checkpoint_steps": 100,
@@ -47,10 +47,10 @@ base_params = {
   },
   "optimizer": "Adam",
   "optimizer_params": {},
-  # "lr_policy": fixed_lr,
-  # "lr_policy_params":{
-  #   "learning_rate": 1e-4
-  # },
+  "lr_policy": fixed_lr,
+  "lr_policy_params":{
+    "learning_rate": 1e-4
+  },
   "summaries": ['learning_rate'],  
   "batch_size_per_gpu": 16,
   "max_steps": 200000,

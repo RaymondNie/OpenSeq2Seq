@@ -153,4 +153,15 @@ class DeepVoiceEncoder(Encoder):
       keys = encoder_postnet_fc(conv_output)
       vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
 
-    return {"keys": keys, "vals": vals, "key_lens": key_lens}
+    if training == False:
+      print(input_dict['source_tensors'])
+      return {
+        "keys": keys, 
+        "vals": vals, 
+        "key_lens": key_lens, 
+        "mel_target": input_dict['source_tensors'][2], 
+        "spec_lens": input_dict['source_tensors'][3],
+        "max_attention_list" :input_dict['source_tensors'][4]
+      }
+    else:
+      return {"keys": keys, "vals": vals, "key_lens": key_lens}

@@ -146,6 +146,7 @@ class DeepVoiceDecoder(Decoder):
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
     self._n_feats = model.get_data_layer().params['num_audio_features']
+    # self.spec = np.zeros((16, 500, self._n_feats), dtype=np.float32) # Hard coded max length and no reduction factor
 
   def _decode(self, input_dict):
     """Creates TensorFlow graph for Deep Voice 3 like decoder.
@@ -165,8 +166,7 @@ class DeepVoiceDecoder(Decoder):
         **** TODO
     """
     regularizer = self.params.get('regularizer', None)
-    alignments_list = []
-    max_attentions_list = []
+
     reduction_factor = self.params['reduction_factor']
 
     if reduction_factor == None:
@@ -183,13 +183,18 @@ class DeepVoiceDecoder(Decoder):
     if training:
       # [B, Ty, n]
       mel_inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
-                                                    input_dict else None
+                                                    input_dict else input_dict['encoder_output']['mel_target']
       # [B]
       spec_lens = input_dict['target_tensors'][2] if 'target_tensors' in \
-                                                    input_dict else None
+                                                    input_dict else input_dict['encoder_output']['spec_lens']
+      alignments_list = []
+      max_attentions_list = []
+    else:
+      mel_inputs = input_dict['encoder_output']['mel_target']
+      spec_lens = input_dict['encoder_output']['spec_lens']
+      max_attentions_list = input_dict['encoder_output']['max_attention_list']
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
-    
 
     # Dropout on mel_input
     mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
@@ -268,6 +273,11 @@ class DeepVoiceDecoder(Decoder):
         key += key_pe
         queries += query_pe
 
+        if training:
+          prev_max_attentions = None
+        else:
+          prev_max_attentions = max_attentions_list[layer]
+
         tensor, alignments, max_attentions = attention_block(
             queries=queries,
             keys=key,
@@ -276,7 +286,8 @@ class DeepVoiceDecoder(Decoder):
             emb_size=self.params['emb_size'],
             key_lens=key_lens,
             layer=layer,
-            training=training
+            training=training,
+            prev_max_attentions=prev_max_attentions,
         )
 
         conv_feats = (tensor + residual) * tf.sqrt(0.5)
@@ -313,6 +324,7 @@ class DeepVoiceDecoder(Decoder):
             stop_token_predictions, 
             alignments_list,
             key_lens,
+            spec_lens,
             max_attentions_list
         ],
     }

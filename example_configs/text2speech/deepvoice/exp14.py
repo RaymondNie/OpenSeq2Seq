@@ -6,7 +6,7 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
-# WN FULLY CONNECTED with max_grad_norm 1. on LJSPEECH test dropout 0
+# WN FULLY CONNECTED with max_grad_norm 1. on LJSPEECH test with train audio
 
 base_model = DeepVoice
 dataset = "LJ"
@@ -24,15 +24,15 @@ encoder_channels == c
 reduction_factor == r
 '''
 reduction_factor = None
-keep_prob = 1.
+keep_prob = 0.9
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
   # "logdir": "/results/deepvoice3_fp32",
   "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test",
-  "print_loss_steps": 100,
-  "print_samples_steps": 100,
-  "save_checkpoint_steps": 100,
+  "print_loss_steps": 500,
+  "print_samples_steps": 500,
+  "save_checkpoint_steps": 500,
   "save_to_tensorboard": False,
   # "optimizer": tf.contrib.opt.LazyAdamOptimizer,
   # "optimizer_params": {
@@ -79,7 +79,7 @@ base_params = {
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
-      os.path.join(dataset_location, "train.csv"),
+      os.path.join(dataset_location, "test.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
