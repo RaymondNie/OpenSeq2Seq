@@ -23,6 +23,7 @@ def attention_block(queries,
                     mononotic_attention=False,
                     window_size=3,
                     scope="attention_block",
+                    regularizer=None,
                     reuse=None):
   '''Attention block.
    Args:
@@ -50,6 +51,7 @@ def attention_block(queries,
         var_scope_name="query_fc",
         mode="train",
         normalization_type="weight_norm",
+        regularizer=regularizer
     )
     key_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
         in_dim=k_in_dim,
@@ -58,6 +60,7 @@ def attention_block(queries,
         var_scope_name="key_fc",
         mode="train",
         normalization_type="weight_norm",
+        regularizer=regularizer,
         init_weights=query_fc.V.initialized_value()
     )
     val_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
@@ -67,6 +70,7 @@ def attention_block(queries,
         var_scope_name="val_fc",
         mode="train",
         normalization_type="weight_norm",
+        regularizer=regularizer
     )
 
     queries = query_fc(queries)
@@ -86,10 +90,11 @@ def attention_block(queries,
       else: # infer
         # Create a mask that starts from the last attended-to + window size
         mask = tf.sequence_mask(prev_max_attentions, Tx)
+        # mask = tf.Print(mask,[mask])
         reverse_mask = tf.sequence_mask(Tx - prev_max_attentions - window_size, Tx)[:,::-1]
         infer_mask = tf.logical_or(mask, reverse_mask)
-        infer_mask = tf.tile(tf.expand_dims(infer_mask, 1), [1, Ty])
-        attention_weights = tf.where(tf.where(infer_mask, False), attention_weights, mask_values)
+        infer_mask = tf.tile(tf.expand_dims(infer_mask, 1), [1, Ty, 1])
+        attention_weights = tf.where(tf.equal(infer_mask, False), attention_weights, mask_values)
 
       alignments = tf.nn.softmax(attention_weights)
       max_attentions = tf.argmax(alignments, -1) # (N, Ty/r)
@@ -107,11 +112,12 @@ def attention_block(queries,
         var_scope_name="attn_output_ffn_wn",
         mode="train",
         normalization_type="weight_norm",
+        regularizer=regularizer
     )
     tensor = output_fc(ctx)
 
     # returns the alignment of the first one
-    alignments = alignments[0]  # (Tx, Ty)
+    alignments = alignments[0]  # (Ty, Tx)
 
   return tensor, alignments, max_attentions
 
@@ -166,7 +172,6 @@ class DeepVoiceDecoder(Decoder):
         **** TODO
     """
     regularizer = self.params.get('regularizer', None)
-
     reduction_factor = self.params['reduction_factor']
 
     if reduction_factor == None:
@@ -179,20 +184,22 @@ class DeepVoiceDecoder(Decoder):
     # TODO: support speaker embedding
     speaker_emb = self.params.get('speaker_emb', None)
     training = (self._mode == 'train')
-    
+    alignments_list = []
+    max_attentions_list = []
+
     if training:
       # [B, Ty, n]
       mel_inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['mel_target']
+      mel_inputs = tf.pad(mel_inputs, [[0,0],[1,0],[0,0]])
+      mel_inputs = mel_inputs[:,:-1,:]
       # [B]
       spec_lens = input_dict['target_tensors'][2] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['spec_lens']
-      alignments_list = []
-      max_attentions_list = []
     else:
       mel_inputs = input_dict['encoder_output']['mel_target']
       spec_lens = input_dict['encoder_output']['spec_lens']
-      max_attentions_list = input_dict['encoder_output']['max_attention_list']
+      prev_max_attentions_list = input_dict['encoder_output']['prev_max_attentions_list']
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
 
@@ -234,7 +241,8 @@ class DeepVoiceDecoder(Decoder):
             dropout=self.params['keep_prob'],
             var_scope_name="decoder_prenet_fc_{}".format(i),
             mode="train",
-            normalization_type="weight_norm"
+            normalization_type="weight_norm",
+            regularizer=regularizer
         )
         mel_inputs = tf.nn.relu(dense_layer(mel_inputs))
 
@@ -261,7 +269,7 @@ class DeepVoiceDecoder(Decoder):
             activation_fn=tf.nn.relu,
             strides=1,
             padding="VALID",
-            regularizer=None,
+            regularizer=regularizer,
             training=training,
             data_format="channels_last",
             bn_momentum=0.9,
@@ -276,7 +284,7 @@ class DeepVoiceDecoder(Decoder):
         if training:
           prev_max_attentions = None
         else:
-          prev_max_attentions = max_attentions_list[layer]
+          prev_max_attentions = prev_max_attentions_list[layer]
 
         tensor, alignments, max_attentions = attention_block(
             queries=queries,
@@ -288,10 +296,12 @@ class DeepVoiceDecoder(Decoder):
             layer=layer,
             training=training,
             prev_max_attentions=prev_max_attentions,
+            regularizer=regularizer
         )
 
         conv_feats = (tensor + residual) * tf.sqrt(0.5)
         alignments_list.append(alignments)
+
         max_attentions_list.append(max_attentions)
     decoder_output = conv_feats
 
@@ -301,8 +311,9 @@ class DeepVoiceDecoder(Decoder):
         out_dim=1,
         dropout=self.params['keep_prob'],
         var_scope_name="stop_token_proj",
-        mode="train",
-        normalization_type="weight_norm"
+        mode=self._mode,
+        normalization_type="weight_norm",
+        regularizer=regularizer
     )
 
     stop_token_logits = stop_token_fc(decoder_output)
@@ -313,8 +324,9 @@ class DeepVoiceDecoder(Decoder):
         out_dim=self._n_feats * reduction_factor,
         dropout=self.params['keep_prob'],
         var_scope_name="mel_proj",
-        mode="train",
-        normalization_type="weight_norm"
+        mode=self._mode,
+        normalization_type="weight_norm",
+        regularizer=regularizer
     )    
     mel_logits = mel_output_fc(decoder_output)
 

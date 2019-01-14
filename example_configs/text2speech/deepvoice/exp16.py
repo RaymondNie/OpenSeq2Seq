@@ -6,10 +6,11 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
+# Tests 15+ are with extra padded 0 to the left
+
 base_model = DeepVoice
 dataset = "LJ"
-dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
-# dataset_location = "/data/LJSpeech"
+dataset_location = "/data/LJSpeech"
 output_type = "mel"
 data_min = 1e-2
 trim = False
@@ -24,10 +25,8 @@ reduction_factor == r
 reduction_factor = None
 keep_prob = 0.9
 base_params = {
-  "use_horovod": False,
-  "num_gpus": 1,
-  # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/will_it_run",
+  "use_horovod": True,
+  "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 500,
   "print_loss_steps": 500,
   "print_samples_steps": 500,
@@ -56,7 +55,7 @@ base_params = {
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
-      os.path.join(dataset_location, "test.csv"),
+      os.path.join(dataset_location, "train.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,

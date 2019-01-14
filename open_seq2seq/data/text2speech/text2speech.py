@@ -52,7 +52,8 @@ class Text2SpeechDataLayer(DataLayer):
             "exp_mag": bool,
             'reduction_factor': None,
             'mixed_phoneme_char_prob': float,
-            'deepvoice': bool
+            'deepvoice': bool,
+            'decoder_layers': int
         }
     )
 
@@ -510,6 +511,8 @@ class Text2SpeechDataLayer(DataLayer):
     else:
       stop_token_target[-1] = 1.
 
+    np.save("test", spectrogram.astype(self.params['dtype'].as_numpy_dtype()))
+
     assert len(text_input) % pad_to == 0
     assert len(spectrogram) % pad_to == 0
     return np.int32(text_input), \
@@ -574,7 +577,7 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors["source_tensors"] = [self._text, self._text_length]
 
     if self.params['mode'] == 'infer' and self.params['deepvoice']:
-      self.spec = tf.placeholder(
+      self._spec = tf.placeholder(
           dtype=tf.float32,
           shape=[
               self.params["batch_size"],
@@ -582,19 +585,19 @@ class Text2SpeechDataLayer(DataLayer):
               self.params["num_audio_features"]
           ]
       )
-      self.spec_len = tf.placeholder(
+      self._spec_lens = tf.placeholder(
           dtype=tf.int32,
-          shape=[self.params["batch_size"]]
+          shape=[self.params["batch_size"], 1]
       )
-      self.prev_max_attention = tf.placeholder(
-          dtype=tf.float32,
+      self._prev_max_attention = tf.placeholder(
+          dtype=tf.int32,
           shape=[
-              self.params["batch_size"],
-              None
+              self.params["decoder_layers"],
+              1
           ]
       )
 
-      self._input_tensors["source_tensors"].extend([self.spec, self.spec_len, self.prev_max_attention])
+      self._input_tensors["source_tensors"].extend([self._spec, self._spec_lens, self._prev_max_attention])
 
 
   def create_feed_dict(self, model_in):
@@ -606,32 +609,53 @@ class Text2SpeechDataLayer(DataLayer):
     Returns:
       feed_dict (dict): Dictionary with values for the placeholders.
     """
-    text = []
-    text_length = []
-    for line in model_in:
-      if not isinstance(line, string_types):
-        raise ValueError(
-            "Text2Speech's interactive inference mode only supports string.",
-            "Got {}". format(type(line))
-        )
-      text_a, text_length_a = self._parse_transcript_element(line)
+
+    if self.params["deepvoice"]:
+      text, text_length, spec, spec_lens, prev_max_attention = model_in
+      
+      text_a, text_length_a = self._parse_transcript_element(text)
+      text = []
+      text_length = []
       text.append(text_a)
       text_length.append(text_length_a)
-    max_len = np.max(text_length)
-    for i, line in enumerate(text):
-      line = np.pad(
-          line, ((0, max_len-len(line))),
-          "constant", constant_values=self.params['char2idx']["<p>"]
-      )
-      text[i] = line
 
-    text = np.reshape(text, [self.params["batch_size"], -1])
-    text_length = np.reshape(text_length, [self.params["batch_size"]])
+      text = np.reshape(text, [self.params["batch_size"], -1])
+      text_length = np.reshape(text_length, [self.params["batch_size"]])
 
-    feed_dict = {
+      feed_dict = {
+        self._spec: spec,
         self._text: text,
         self._text_length: text_length,
-    }
+        self._spec_lens: spec_lens,
+        self._prev_max_attention: prev_max_attention
+      }
+    else:
+      text = []
+      text_length = []
+      for line in model_in:
+        if not isinstance(line, string_types):
+          raise ValueError(
+              "Text2Speech's interactive inference mode only supports string.",
+              "Got {}". format(type(line))
+          )
+        text_a, text_length_a = self._parse_transcript_element(line)
+        text.append(text_a)
+        text_length.append(text_length_a)
+      max_len = np.max(text_length)
+      for i, line in enumerate(text):
+        line = np.pad(
+            line, ((0, max_len-len(line))),
+            "constant", constant_values=self.params['char2idx']["<p>"]
+        )
+        text[i] = line
+
+      text = np.reshape(text, [self.params["batch_size"], -1])
+      text_length = np.reshape(text_length, [self.params["batch_size"]])
+
+      feed_dict = {
+          self._text: text,
+          self._text_length: text_length,
+      }
     return feed_dict
 
   @property

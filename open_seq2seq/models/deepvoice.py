@@ -146,7 +146,10 @@ class DeepVoice(EncoderDecoderModel):
     return {}
 
   def infer(self, input_values, output_values):
-    return output_values[1][-1]
+    mel_output = output_values[0]
+    max_attentions_list = output_values[5]
+    alignment_list = output_values[2]
+    return mel_output, max_attentions_list, alignment_list
 
   def finalize_inference(self, results_per_batch, output_file):
     return {}

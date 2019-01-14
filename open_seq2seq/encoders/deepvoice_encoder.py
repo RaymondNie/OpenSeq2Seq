@@ -67,7 +67,6 @@ class DeepVoiceEncoder(Encoder):
     src_vocab_size = self._model.get_data_layer().params['src_vocab_size']
     key_lens = input_dict['source_tensors'][1]
 
-
     # ----- Text embedding -----------------------------------------------
     with tf.variable_scope("embedding"):
       text = input_dict['source_tensors'][0]
@@ -77,7 +76,6 @@ class DeepVoiceEncoder(Encoder):
           dtype=self.params['dtype'],
           initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1)
       )
-
       # [B, Tx, e]
       embedded_inputs = tf.cast(
           tf.nn.embedding_lookup(enc_emb_w, text),
@@ -94,7 +92,7 @@ class DeepVoiceEncoder(Encoder):
           var_scope_name="embedding_fc",
           mode="train",
           normalization_type="weight_norm",
-          regularizer=None,
+          regularizer=regularizer,
           init_var=None,
           init_weights=None
       )
@@ -124,7 +122,7 @@ class DeepVoiceEncoder(Encoder):
             activation_fn=tf.nn.relu,
             strides=1,
             padding="VALID",
-            regularizer=None,
+            regularizer=regularizer,
             training=training,
             data_format="channels_last",
             bn_momentum=0.9,
@@ -145,7 +143,7 @@ class DeepVoiceEncoder(Encoder):
           var_scope_name="encoder_postnet_fc",
           mode="train",
           normalization_type="weight_norm",
-          regularizer=None,
+          regularizer=regularizer,
           init_var=None,
           init_weights=None
       )
@@ -154,14 +152,13 @@ class DeepVoiceEncoder(Encoder):
       vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
 
     if training == False:
-      print(input_dict['source_tensors'])
       return {
         "keys": keys, 
         "vals": vals, 
         "key_lens": key_lens, 
         "mel_target": input_dict['source_tensors'][2], 
         "spec_lens": input_dict['source_tensors'][3],
-        "max_attention_list" :input_dict['source_tensors'][4]
+        "prev_max_attentions_list" :input_dict['source_tensors'][4]
       }
     else:
       return {"keys": keys, "vals": vals, "key_lens": key_lens}
