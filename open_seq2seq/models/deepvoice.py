@@ -59,7 +59,9 @@ class DeepVoice(EncoderDecoderModel):
   def get_optional_params():
     return dict(
         EncoderDecoderModel.get_optional_params(), **{
-            'save_to_tensorboard': bool
+            'save_to_tensorboard': bool,
+            'reduction_factor': int,
+            'num_audio_features': int
         }
     )
 
@@ -122,6 +124,9 @@ class DeepVoice(EncoderDecoderModel):
         self.params['logdir'],
         training_step
     )
+
+    if self.params['reduction_factor'] != None:
+      predicted_mel_sample = np.reshape(predicted_mel_sample, (-1, self.params['num_audio_features']))
 
     predicted_mel_sample = predicted_mel_sample[:spec_len - 1, :]
     predicted_mel_sample = self.get_data_layer().get_magnitude_spec(predicted_mel_sample, is_mel=True)
