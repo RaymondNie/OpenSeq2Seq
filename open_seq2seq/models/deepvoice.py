@@ -60,7 +60,7 @@ class DeepVoice(EncoderDecoderModel):
     return dict(
         EncoderDecoderModel.get_optional_params(), **{
             'save_to_tensorboard': bool,
-            'reduction_factor': int,
+            'reduction_factor': None,
             'num_audio_features': int
         }
     )
@@ -81,14 +81,11 @@ class DeepVoice(EncoderDecoderModel):
 
     key_len_sample = output_values[3][1]
 
-    # print(key_len_sample)
 
     alignment_list = output_values[2]
     dict_to_log = {}
 
     pe = output_values[3]
-
-    # print(alignment_list[0])
 
     specs = [
       target_mel_sample,

@@ -99,7 +99,6 @@ class DeepVoiceEncoder(Encoder):
       embedding_proj = embedding_fc(embedded_inputs)
 
     conv_feats = embedding_proj
-
     # ----- Conv Blocks  --------------------------------------------------
     with tf.variable_scope("encoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['conv_layers']):

@@ -204,7 +204,7 @@ class DeepVoiceDecoder(Decoder):
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
 
     # Dropout on mel_input
-    mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
+    mel_inputs = tf.nn.dropout(mel_inputs, 0.5)
 
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
