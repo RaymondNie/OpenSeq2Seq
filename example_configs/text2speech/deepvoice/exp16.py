@@ -52,6 +52,8 @@ base_params = {
   "max_steps": 200000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
+  "reduction_factor": reduction_factor,
+  "num_audio_features": 80,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
