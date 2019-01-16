@@ -301,6 +301,7 @@ class Text2SpeechDataLayer(DataLayer):
           ),
           num_parallel_calls=8,
       )
+
       if (self.params.get("duration_max", None) or
           self.params.get("duration_max", None)):
         self._dataset = self._dataset.filter(
@@ -577,12 +578,15 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors["source_tensors"] = [self._text, self._text_length]
 
     if self.params['mode'] == 'infer' and self.params['deepvoice']:
+      reduction_factor = self.params['reduction_factor']
+      if reduction_factor == None:
+        reduction_factor = 1
       self._spec = tf.placeholder(
           dtype=tf.float32,
           shape=[
               self.params["batch_size"],
               None,
-              self.params["num_audio_features"]
+              self.params["num_audio_features"] * reduction_factor
           ]
       )
       self._spec_lens = tf.placeholder(

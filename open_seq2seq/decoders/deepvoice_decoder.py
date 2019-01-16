@@ -210,10 +210,8 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    if training:
-        position_rate = tf.cast(max_query_len / max_key_len, dtype=tf.float32)
-    else:
-        position_rate = 1.29
+    position_rate = 6.3 // reduction_factor # Initial rate for single speaker?
+
 
     key_pe = get_position_encoding(
         length=max_key_len, 
