@@ -8,7 +8,12 @@ class DeepVoiceLoss(Loss):
     self._n_feats = self._model.get_data_layer().params["num_audio_features"]
 
   def get_required_params(self):
-    return {}
+    return dict(
+        Loss.get_required_params(), **{
+            'l1_loss': bool
+        }
+    )
+
 
   def get_optional_params(self):
     return {}
@@ -74,12 +79,17 @@ class DeepVoiceLoss(Loss):
     mask = tf.expand_dims(mask, axis=-1)
 
     # Apply L1 Loss for spectrogram prediction and cross entropy for stop token
-    # post_net_predictions *= mask
-    # decoder_loss = tf.reduce_mean(tf.abs(mel_target - post_net_predictions))
-
-    decoder_loss = tf.losses.mean_squared_error(
-      labels=mel_target, predictions=post_net_predictions, weights=mask
-    )
+    if self.params['l1_loss']:
+        decoder_loss = tf.reduce_mean(tf.losses.absolute_difference(
+            labels=mel_target, 
+            predictions=post_net_predictions, 
+            weights=mask, 
+            reduction=tf.losses.Reduction.NONE
+        ))
+    else:
+        decoder_loss = tf.losses.mean_squared_error(
+          labels=mel_target, predictions=post_net_predictions, weights=mask
+        )
 
     stop_token_loss = tf.nn.sigmoid_cross_entropy_with_logits(
         labels=stop_token_target, logits=stop_token_predictions
