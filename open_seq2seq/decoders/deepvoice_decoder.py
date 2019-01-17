@@ -18,10 +18,10 @@ def attention_block(queries,
                     layer,
                     prev_max_attentions=None,
                     keep_prob=0.95,
-                    last_attended=None,
                     training=True,
                     mononotic_attention=False,
                     window_size=3,
+                    window_backwards=0,
                     scope="attention_block",
                     regularizer=None,
                     reuse=None):
@@ -89,9 +89,9 @@ def attention_block(queries,
         attention_weights = tf.where(score_mask, attention_weights, mask_values)
       else: # infer
         # Create a mask that starts from the last attended-to + window size
-        mask = tf.sequence_mask(prev_max_attentions, Tx)
+        mask = tf.sequence_mask(prev_max_attentions - window_backwards, Tx)
         # mask = tf.Print(mask,[mask])
-        reverse_mask = tf.sequence_mask(Tx - prev_max_attentions - window_size, Tx)[:,::-1]
+        reverse_mask = tf.sequence_mask(Tx - prev_max_attentions - window_size + window_backwards, Tx)[:,::-1]
         infer_mask = tf.logical_or(mask, reverse_mask)
         infer_mask = tf.tile(tf.expand_dims(infer_mask, 1), [1, Ty, 1])
         attention_weights = tf.where(tf.equal(infer_mask, False), attention_weights, mask_values)
@@ -144,7 +144,6 @@ class DeepVoiceDecoder(Decoder):
     return dict(
         Decoder.get_optional_params(), **{
             'speaker_emb': None,
-            'reduction_factor': None,
             'window_size': int
         }
     )
@@ -152,7 +151,14 @@ class DeepVoiceDecoder(Decoder):
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
     self._n_feats = model.get_data_layer().params['num_audio_features']
-    # self.spec = np.zeros((16, 500, self._n_feats), dtype=np.float32) # Hard coded max length and no reduction factor
+    if "both" in self._model.get_data_layer().params['output_type']:
+      self._both = True
+    else:
+      self._both = False
+    if self._model.get_data_layer().params['reduction_factor'] != None:
+      self._reduction_factor = self._model.get_data_layer().params['reduction_factor']
+    else:
+      self._reduction_factor = 1
 
   def _decode(self, input_dict):
     """Creates TensorFlow graph for Deep Voice 3 like decoder.
@@ -172,11 +178,6 @@ class DeepVoiceDecoder(Decoder):
         **** TODO
     """
     regularizer = self.params.get('regularizer', None)
-    reduction_factor = self.params['reduction_factor']
-
-    if reduction_factor == None:
-      reduction_factor = 1
-
     key = input_dict['encoder_output']['keys'] # [B, Tx, e]
     value = input_dict['encoder_output']['vals'] # [B, Tx, e]
     key_lens = input_dict['encoder_output']['key_lens']
@@ -203,15 +204,21 @@ class DeepVoiceDecoder(Decoder):
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
 
+    if self._both:
+      mel_inputs, _ = tf.split(
+          mel_inputs,
+          [self._n_feats['mel'], self._n_feats['magnitude']],
+          axis=2
+      )
+      
     # Dropout on mel_input
-    mel_inputs = tf.nn.dropout(mel_inputs, 0.5)
+    mel_inputs = tf.nn.dropout(mel_inputs, .5)
 
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = 6.3 // reduction_factor # Initial rate for single speaker?
-
+    position_rate = 6.3 // self._reduction_factor # Initial rate for single speaker?
 
     key_pe = get_position_encoding(
         length=max_key_len, 
@@ -229,7 +236,7 @@ class DeepVoiceDecoder(Decoder):
         mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
 
         if i == 0:
-          in_dim = self._n_feats * reduction_factor
+          in_dim = self._n_feats["mel"] * self._reduction_factor
         else:
           in_dim = self.params['prenet_layers'][i-1]
 
@@ -319,22 +326,67 @@ class DeepVoiceDecoder(Decoder):
 
     mel_output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
         in_dim=self.params['emb_size'],
-        out_dim=self._n_feats * reduction_factor,
+        out_dim=self._n_feats["mel"] * self._reduction_factor,
         dropout=self.params['keep_prob'],
         var_scope_name="mel_proj",
         mode=self._mode,
         normalization_type="weight_norm",
         regularizer=regularizer
     )    
-    mel_logits = mel_output_fc(decoder_output)
+    mel_spec_prediction = mel_output_fc(decoder_output)
+
+    if self._both:
+      mag_spec_prediction = mel_spec_prediction
+      mag_spec_prediction = conv_bn_actv(
+          layer_type="conv1d",
+          name="conv_0",
+          inputs=mag_spec_prediction,
+          filters=256,
+          kernel_size=4,
+          activation_fn=tf.nn.relu,
+          strides=1,
+          padding="SAME",
+          regularizer=regularizer,
+          training=training,
+          data_format=self.params.get('postnet_data_format', 'channels_last'),
+          bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
+          bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
+      )
+      mag_spec_prediction = conv_bn_actv(
+          layer_type="conv1d",
+          name="conv_1",
+          inputs=mag_spec_prediction,
+          filters=512,
+          kernel_size=4,
+          activation_fn=tf.nn.relu,
+          strides=1,
+          padding="SAME",
+          regularizer=regularizer,
+          training=training,
+          data_format=self.params.get('postnet_data_format', 'channels_last'),
+          bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
+          bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
+      )
+      if self._model.get_data_layer()._exp_mag:
+        mag_spec_prediction = tf.exp(mag_spec_prediction)
+      mag_spec_prediction = tf.layers.conv1d(
+          mag_spec_prediction,
+          self._n_feats["magnitude"],
+          1,
+          name="post_net_proj",
+          use_bias=False,
+      )
+    else:
+      mag_spec_prediction = tf.zeros([_batch_size, _batch_size, _batch_size])
 
     return {
         'outputs': [
-            mel_logits, 
+            mel_spec_prediction, 
             stop_token_predictions, 
             alignments_list,
             key_lens,
             spec_lens,
-            max_attentions_list
+            max_attentions_list,
+            mag_spec_prediction
         ],
     }

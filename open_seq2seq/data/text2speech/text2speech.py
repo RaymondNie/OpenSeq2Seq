@@ -370,14 +370,17 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors = {}
     self._input_tensors["source_tensors"] = [text, text_length]
 
-    if self.params['reduction_factor'] != None:
+    if self.params.get('reduction_factor', None) != None:
+      self.reduction_factor = self.params['reduction_factor']
       shape = tf.shape(spec)
-      spec = tf.reshape(spec, [shape[0], shape[1] // self.params['reduction_factor'], -1])
+      spec = tf.reshape(spec, [shape[0], shape[1] // self.reduction_factor, -1])
       spec.set_shape(
-        [self.params['batch_size'], None, num_audio_features * self.params['reduction_factor']]
+        [self.params['batch_size'], None, num_audio_features * self.reduction_factor]
       )
-      spec_length = spec_length // self.params['reduction_factor']
-      stop_token_target = stop_token_target[:, ::self.params['reduction_factor']]
+      spec_length = spec_length // self.reduction_factor
+      stop_token_target = stop_token_target[:, ::self.reduction_factor]
+    else:
+      self.reduction_factor = 1
 
     if self.params['mode'] != 'infer':
       self._input_tensors['target_tensors'] = [
@@ -578,15 +581,12 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors["source_tensors"] = [self._text, self._text_length]
 
     if self.params['mode'] == 'infer' and self.params['deepvoice']:
-      reduction_factor = self.params['reduction_factor']
-      if reduction_factor == None:
-        reduction_factor = 1
       self._spec = tf.placeholder(
           dtype=tf.float32,
           shape=[
               self.params["batch_size"],
               None,
-              self.params["num_audio_features"] * reduction_factor
+              self.params["num_audio_features"] * self.reduction_factor
           ]
       )
       self._spec_lens = tf.placeholder(

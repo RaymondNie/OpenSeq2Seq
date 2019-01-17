@@ -13,7 +13,7 @@ from open_seq2seq.models.text2speech import plot_spectrograms, save_audio
 args = [
         "--config_file=example_configs/text2speech/deepvoice3_infer.py",
         "--mode=interactive_infer",
-        "--logdir=exp17_50dropout/logs/",
+        "--logdir=exp16-fixedpr/deepvoice_fp32/logs/",
 ]
 
 # A simpler version of what run.py does. It returns the created model and its 
@@ -50,7 +50,7 @@ pad_to = config_params['data_layer_params'].get('pad_to', 8)
 reduction_factor = config_params.get('reduction_factor', 1)
 
 # Starting values
-text = "test one two three."
+text = "testing one two three."
 text_length = len(text)
 text_length += pad_to - ((text_length + 2) % pad_to) + 2
 spec = np.zeros((1, Ty // reduction_factor, num_audio_features * reduction_factor), np.float32)
