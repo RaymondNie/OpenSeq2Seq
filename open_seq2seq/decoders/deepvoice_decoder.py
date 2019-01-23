@@ -7,7 +7,7 @@ from .decoder import Decoder
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.rnns.attention_wrapper import _maybe_mask_score
-from open_seq2seq.parts.convs2s import ffn_wn_layer
+from open_seq2seq.parts.convs2s import ffn_wn_layer, conv_wn_layer
 
 def attention_block(queries,
                     keys,
@@ -18,8 +18,8 @@ def attention_block(queries,
                     layer,
                     prev_max_attentions=None,
                     keep_prob=0.95,
-                    training=True,
-                    mononotic_attention=False,
+                    mode="train",
+                    enforce_monotonicity=False,
                     window_size=3,
                     window_backwards=0,
                     scope="attention_block",
@@ -49,7 +49,7 @@ def attention_block(queries,
         out_dim=attn_size,
         dropout=keep_prob,
         var_scope_name="query_fc",
-        mode="train",
+        mode=mode,
         normalization_type="weight_norm",
         regularizer=regularizer
     )
@@ -58,7 +58,7 @@ def attention_block(queries,
         out_dim=attn_size,
         dropout=keep_prob,
         var_scope_name="key_fc",
-        mode="train",
+        mode=mode,
         normalization_type="weight_norm",
         regularizer=regularizer,
         init_weights=query_fc.V.initialized_value()
@@ -68,7 +68,7 @@ def attention_block(queries,
         out_dim=attn_size,
         dropout=keep_prob,
         var_scope_name="val_fc",
-        mode="train",
+        mode=mode,
         normalization_type="weight_norm",
         regularizer=regularizer
     )
@@ -83,7 +83,7 @@ def attention_block(queries,
       # Key Masking
       mask_values = -np.inf * tf.ones_like(attention_weights)
 
-      if training:
+      if mode == "train" or enforce_monotonicity == False:
         score_mask = tf.sequence_mask(key_lens, maxlen=Tx) # (N, Tx)
         score_mask = tf.tile(tf.expand_dims(score_mask, 1), [1, Ty, 1]) # (N, Ty, Tx)
         attention_weights = tf.where(score_mask, attention_weights, mask_values)
@@ -101,8 +101,7 @@ def attention_block(queries,
 
     with tf.variable_scope("context"):
       ctx = tf.nn.dropout(alignments, keep_prob)
-      ctx = tf.matmul(ctx, vals)  # (N, Ty/r, a)
-      ctx *= tf.rsqrt(tf.to_float(Tx))
+      ctx = tf.matmul(ctx, vals) * tf.rsqrt(tf.to_float(Tx))# (N, Ty/r, a)
 
     # Restore shape for residual connection
     output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
@@ -110,7 +109,7 @@ def attention_block(queries,
         out_dim=emb_size,
         dropout=keep_prob,
         var_scope_name="attn_output_ffn_wn",
-        mode="train",
+        mode=mode,
         normalization_type="weight_norm",
         regularizer=regularizer
     )
@@ -144,7 +143,8 @@ class DeepVoiceDecoder(Decoder):
     return dict(
         Decoder.get_optional_params(), **{
             'speaker_emb': None,
-            'window_size': int
+            'window_size': int,
+            'monotonic_alignment': list
         }
     )
 
@@ -153,8 +153,10 @@ class DeepVoiceDecoder(Decoder):
     self._n_feats = model.get_data_layer().params['num_audio_features']
     if "both" in self._model.get_data_layer().params['output_type']:
       self._both = True
+      self.num_audio_features = self._n_feats["mel"]
     else:
       self._both = False
+      self.num_audio_features = self._n_feats
     if self._model.get_data_layer().params['reduction_factor'] != None:
       self._reduction_factor = self._model.get_data_layer().params['reduction_factor']
     else:
@@ -198,6 +200,7 @@ class DeepVoiceDecoder(Decoder):
       spec_lens = input_dict['target_tensors'][2] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['spec_lens']
     else:
+      monotonic_alignment = self.params.get('monotonic_alignment', [True] * self.params['decoder_layers'])
       mel_inputs = input_dict['encoder_output']['mel_target']
       spec_lens = input_dict['encoder_output']['spec_lens']
       prev_max_attentions_list = input_dict['encoder_output']['prev_max_attentions_list']
@@ -212,13 +215,16 @@ class DeepVoiceDecoder(Decoder):
       )
       
     # Dropout on mel_input
-    mel_inputs = tf.nn.dropout(mel_inputs, .5)
+    # if training:
+    #   mel_inputs = tf.nn.dropout(mel_inputs, .5)
+    # else:
+    #   mel_inputs = tf.nn.dropout(mel_inputs, 1.)
 
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = 6.3 // self._reduction_factor # Initial rate for single speaker?
+    position_rate = 1.38 # Initial rate for single speaker?
 
     key_pe = get_position_encoding(
         length=max_key_len, 
@@ -236,7 +242,7 @@ class DeepVoiceDecoder(Decoder):
         mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
 
         if i == 0:
-          in_dim = self._n_feats["mel"] * self._reduction_factor
+          in_dim = self.num_audio_features * self._reduction_factor
         else:
           in_dim = self.params['prenet_layers'][i-1]
 
@@ -257,39 +263,54 @@ class DeepVoiceDecoder(Decoder):
     # ----- Conv/Attn Blocks ---------------------------------------------
     with tf.variable_scope("decoder_layers", reuse=tf.AUTO_REUSE):
       for layer in range(self.params['decoder_layers']):
+        
+        residual = conv_feats
 
         padded_inputs = tf.pad(
             conv_feats,
             [[0, 0], [(self.params['kernel_size'] - 1), 0], [0, 0]]
         )
 
-        # [B, Ty, c]
-        queries = conv_bn_res_bn_actv(
-            layer_type="conv1d",
-            name="conv_bn_res_bn_actv_{}".format(layer+1),
-            inputs=padded_inputs,
-            res_inputs=conv_feats,
-            filters=self.params['channels'],
-            kernel_size=self.params['kernel_size'],
-            activation_fn=tf.nn.relu,
-            strides=1,
-            padding="VALID",
-            regularizer=regularizer,
-            training=training,
-            data_format="channels_last",
-            bn_momentum=0.9,
-            bn_epsilon=1e-3
-        )
+        if layer == 0:
+          # [B, Ty, c]
+          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
+              in_dim=self.params['emb_size'],
+              out_dim=self.params['channels'],
+              kernel_width=self.params['kernel_size'],
+              mode=self._mode,
+              layer_id=layer,
+              hidden_dropout=self.params['keep_prob'],
+              conv_padding='VALID',
+              decode_padding=False,
+              regularizer=regularizer
+          )
+        else:
+          # [B, Ty, c]
+          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
+              in_dim=self.params['channels'],
+              out_dim=self.params['channels'],
+              kernel_width=self.params['kernel_size'],
+              mode=self._mode,
+              layer_id=layer,
+              hidden_dropout=self.params['keep_prob'],
+              conv_padding='VALID',
+              decode_padding=False,
+              regularizer=regularizer
+          )
 
-        queries *= tf.sqrt(0.5)
-        residual = queries
+        queries = conv_layer(padded_inputs)
+        queries = (queries[:, :tf.shape(residual)[1], :] + residual) * tf.sqrt(0.5)
+
+        # Add the positional encoding
         key += key_pe
         queries += query_pe
 
         if training:
           prev_max_attentions = None
+          enforce_monotonicity = False
         else:
           prev_max_attentions = prev_max_attentions_list[layer]
+          enforce_monotonicity = monotonic_alignment[layer]
 
         tensor, alignments, max_attentions = attention_block(
             queries=queries,
@@ -299,15 +320,16 @@ class DeepVoiceDecoder(Decoder):
             emb_size=self.params['emb_size'],
             key_lens=key_lens,
             layer=layer,
-            training=training,
+            mode=self._mode,
             prev_max_attentions=prev_max_attentions,
+            enforce_monotonicity=enforce_monotonicity,
             regularizer=regularizer
         )
 
         conv_feats = (tensor + residual) * tf.sqrt(0.5)
         alignments_list.append(alignments)
-
         max_attentions_list.append(max_attentions)
+
     decoder_output = conv_feats
 
     # ----- Decoder Postnet ---------------------------------------------
@@ -326,7 +348,7 @@ class DeepVoiceDecoder(Decoder):
 
     mel_output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
         in_dim=self.params['emb_size'],
-        out_dim=self._n_feats["mel"] * self._reduction_factor,
+        out_dim=self.num_audio_features * self._reduction_factor,
         dropout=self.params['keep_prob'],
         var_scope_name="mel_proj",
         mode=self._mode,
@@ -337,6 +359,7 @@ class DeepVoiceDecoder(Decoder):
 
     if self._both:
       mag_spec_prediction = mel_spec_prediction
+
       mag_spec_prediction = conv_bn_actv(
           layer_type="conv1d",
           name="conv_0",
@@ -352,6 +375,7 @@ class DeepVoiceDecoder(Decoder):
           bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
           bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
       )
+
       mag_spec_prediction = conv_bn_actv(
           layer_type="conv1d",
           name="conv_1",
@@ -367,8 +391,10 @@ class DeepVoiceDecoder(Decoder):
           bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
           bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
       )
+
       if self._model.get_data_layer()._exp_mag:
         mag_spec_prediction = tf.exp(mag_spec_prediction)
+
       mag_spec_prediction = tf.layers.conv1d(
           mag_spec_prediction,
           self._n_feats["magnitude"],
@@ -377,7 +403,7 @@ class DeepVoiceDecoder(Decoder):
           use_bias=False,
       )
     else:
-      mag_spec_prediction = tf.zeros([_batch_size, _batch_size, _batch_size])
+      mag_spec_prediction = tf.zeros([1])
 
     return {
         'outputs': [

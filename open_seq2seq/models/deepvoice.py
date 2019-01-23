@@ -41,7 +41,6 @@ def plot_alignment(alignments, gs, logdir, save_to_tensorboard=False):
       )
       summary = tf.Summary.Value(tag=tag, image=summary)
       plt.close(fig)
-
       return summary
     else:
       plt.savefig('{}/alignment_{}.png'.format(directory, gs), format='png')
@@ -66,6 +65,7 @@ class DeepVoice(EncoderDecoderModel):
 
   def __init__(self, params, mode="train", hvd=None):
     super(DeepVoice, self).__init__(params, mode=mode, hvd=hvd)
+    self._save_to_tensorboard = self.params["save_to_tensorboard"]
 
   def maybe_print_logs(self, input_values, output_values, training_step):
     predicted_mel_output = output_values[0]
@@ -108,6 +108,8 @@ class DeepVoice(EncoderDecoderModel):
     if not os.path.exists(directory):
       os.makedirs(directory)
 
+    save_format = "tensorboard" if self._save_to_tensorboard == True else "disk"
+
     # Plot spectrograms
     im_spec_summary = plot_spectrograms(
         specs,
@@ -115,12 +117,15 @@ class DeepVoice(EncoderDecoderModel):
         stop_prediction_sample,
         0,
         self.params['logdir'],
-        training_step
+        training_step,
+        save_to_tensorboard=self._save_to_tensorboard,
+        append="train"
     )
 
 
     if "both" in self.get_data_layer().params['output_type']:
       predicted_mag_spec = output_values[6][0]
+      num_audio_features = self.get_data_layer().params['num_audio_features']["mel"]
       predicted_mag_spec = self.get_data_layer().get_magnitude_spec(predicted_mag_spec)
       wav_summary = save_audio(
           predicted_mag_spec,
@@ -129,22 +134,28 @@ class DeepVoice(EncoderDecoderModel):
           n_fft=self.get_data_layer().n_fft,
           sampling_rate=self.get_data_layer().sampling_rate,
           mode="mag",
-          save_format="disk",
+          save_format=save_format,
       )
+    else:
+      num_audio_features = self.get_data_layer().params['num_audio_features']
 
     if self.params['reduction_factor'] != None:
-      predicted_mel_sample = np.reshape(predicted_mel_sample, (-1, self.get_data_layer().params['num_audio_features']["mel"]))
+      predicted_mel_sample = np.reshape(predicted_mel_sample, (-1, num_audio_features))
 
     predicted_mel_sample = predicted_mel_sample[:spec_len - 1, :]
     predicted_mel_sample = self.get_data_layer().get_magnitude_spec(predicted_mel_sample, is_mel=True)
+
     wav_summary = save_audio(
         predicted_mel_sample,
         self.params["logdir"],
         training_step,
         n_fft=self.get_data_layer().n_fft,
         sampling_rate=self.get_data_layer().sampling_rate,
-        save_format="disk"
+        save_format=save_format
     )
+
+    dict_to_log['audio'] = wav_summary
+    dict_to_log['image'] = im_spec_summary
 
     return dict_to_log
 
@@ -159,9 +170,12 @@ class DeepVoice(EncoderDecoderModel):
     max_attentions_list = output_values[5]
     alignment_list = output_values[2]
     stop_prediction = output_values[1]
+    if "both" in self.get_data_layer().params['output_type']:
+      predicted_mag_spec = output_values[6]
+    else:
+      predicted_mag_spec = np.zeros((5,5))
 
-
-    return mel_output, max_attentions_list, alignment_list, stop_prediction
+    return mel_output, max_attentions_list, alignment_list, stop_prediction, predicted_mag_spec
 
   def finalize_inference(self, results_per_batch, output_file):
     return {}

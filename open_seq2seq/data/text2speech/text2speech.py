@@ -581,12 +581,23 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors["source_tensors"] = [self._text, self._text_length]
 
     if self.params['mode'] == 'infer' and self.params['deepvoice']:
+      if self.params.get('reduction_factor', None) != None:
+        self.reduction_factor = self.params['reduction_factor']
+      else:
+        self.reduction_factor = 1
+
+      if "both" in self.params['output_type']:
+        num_audio_features = self.params["num_audio_features"]["mel"]
+        num_audio_features += self.params['num_audio_features']['magnitude']
+      else:
+        num_audio_features = self.params["num_audio_features"]
+
       self._spec = tf.placeholder(
           dtype=tf.float32,
           shape=[
               self.params["batch_size"],
               None,
-              self.params["num_audio_features"] * self.reduction_factor
+              num_audio_features * self.reduction_factor
           ]
       )
       self._spec_lens = tf.placeholder(

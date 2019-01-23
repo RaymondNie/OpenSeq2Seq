@@ -12,7 +12,7 @@ from open_seq2seq.parts.rnns.utils import single_cell
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.convs2s.utils import gated_linear_units
 from open_seq2seq.parts.deepvoice.utils import conv_block, glu
-from open_seq2seq.parts.convs2s import ffn_wn_layer
+from open_seq2seq.parts.convs2s import ffn_wn_layer, conv_wn_layer
 
 from .encoder import Encoder
 
@@ -87,10 +87,10 @@ class DeepVoiceEncoder(Encoder):
       # [B, Tx, c]
       embedding_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
           in_dim=self.params['emb_size'],
-          out_dim=self.params['emb_size'],
+          out_dim=self.params['channels'],
           dropout=self.params['keep_prob'],
           var_scope_name="embedding_fc",
-          mode="train",
+          mode=self._mode,
           normalization_type="weight_norm",
           regularizer=regularizer,
           init_var=None,
@@ -104,31 +104,42 @@ class DeepVoiceEncoder(Encoder):
       for layer in range(self.params['conv_layers']):
 
         conv_feats = tf.nn.dropout(conv_feats, self.params['keep_prob'])
-
+        residual = conv_feats
+        
         # Kernel size should be odd to preserve sequence length with this padding
         padded_inputs = tf.pad(
             conv_feats,
             [[0, 0], [(self.params['kernel_size'] - 1) // 2, (self.params['kernel_size'] - 1) // 2], [0, 0]]
         )
 
-        conv_feats = conv_bn_res_bn_actv(
-            layer_type="conv1d",
-            name="conv_bn_res_bn_actv_{}".format(layer+1),
-            inputs=padded_inputs,
-            res_inputs=conv_feats,
-            filters=self.params['channels'],
-            kernel_size=self.params['kernel_size'],
-            activation_fn=tf.nn.relu,
-            strides=1,
-            padding="VALID",
-            regularizer=regularizer,
-            training=training,
-            data_format="channels_last",
-            bn_momentum=0.9,
-            bn_epsilon=1e-3
-        )
+        if layer == 0:
+          # [B, Ty, c]
+          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
+              in_dim=self.params['channels'],
+              out_dim=self.params['channels'],
+              kernel_width=self.params['kernel_size'],
+              mode=self._mode,
+              layer_id=layer,
+              hidden_dropout=self.params['keep_prob'],
+              conv_padding='VALID',
+              decode_padding=False,
+              regularizer=regularizer
+          )
+        else:
+          # [B, Ty, c]
+          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
+              in_dim=self.params['channels'],
+              out_dim=self.params['channels'],
+              kernel_width=self.params['kernel_size'],
+              mode=self._mode,
+              layer_id=layer,
+              hidden_dropout=self.params['keep_prob'],
+              conv_padding='VALID',
+              decode_padding=False,
+              regularizer=regularizer
+          )
 
-        conv_feats *= tf.sqrt(0.5)
+        conv_feats = (conv_layer(padded_inputs) + residual) * tf.sqrt(0.5)
 
     conv_output = conv_feats
 
