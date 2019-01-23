@@ -134,7 +134,8 @@ class DeepVoiceDecoder(Decoder):
             'kernel_size': int,
             'attention_size': int,
             'emb_size': int,
-            'channels': int
+            'channels': int,
+            'pos_rate': float
         }
     )
 
@@ -224,7 +225,7 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = 1.38 # Initial rate for single speaker?
+    position_rate = self.params['pos_rate'] # Initial rate for single speaker?
 
     key_pe = get_position_encoding(
         length=max_key_len, 
