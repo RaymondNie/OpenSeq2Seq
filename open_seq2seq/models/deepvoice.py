@@ -95,12 +95,11 @@ class DeepVoice(EncoderDecoderModel):
 
     specs = [
       target_mel_sample,
-      predicted_mel_sample,
-      alignment_list[0],
-      alignment_list[1],
-      alignment_list[2],
-      alignment_list[3]
+      predicted_mel_sample
     ]
+
+    for alignment_layer_plot in alignment_list:
+      specs.append(alignment_layer_plot)
 
     titles = [
         "target output",
