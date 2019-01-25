@@ -86,7 +86,6 @@ base_params = {
   "max_steps": 200000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
-  "reduction_factor": reduction_factor,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
@@ -99,7 +98,7 @@ base_params = {
     'dataset_location':dataset_location,
     "mag_power": 1,
     "pad_EOS": True,
-    "feature_normalize": True,
+    "feature_normalize": False,
     "feature_normalize_mean": 0.,
     "feature_normalize_std": 1.,
     "data_min":data_min,
