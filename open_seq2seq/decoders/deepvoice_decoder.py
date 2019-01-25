@@ -151,19 +151,13 @@ class DeepVoiceDecoder(Decoder):
 
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
-
-    if self._model.get_data_layer().params['reduction_factor'] != None:
-      self._reduction_factor = self._model.get_data_layer().params['reduction_factor']
+    self.reduction_factor = model.get_data_layer().params['reduction_factor']
+    self.both = model.get_data_layer().params['output_type']
+    if self.both:
+      self.mel_feats = model.get_data_layer().params['num_audio_features']['mel']
+      self.mag_feats = model.get_data_layer().params['num_audio_features']['magnitude']
     else:
-      self._reduction_factor = 1
-
-    self._n_feats = model.get_data_layer().params['num_audio_features']
-    if "both" in self._model.get_data_layer().params['output_type']:
-      self._both = True
-      self.num_audio_features = self._n_feats["mel"]
-    else:
-      self._both = False
-      self.num_audio_features = self._n_feats
+      self.mel_feats = model.get_data_layer().params['num_audio_features']
 
   def _decode(self, input_dict):
     """Creates TensorFlow graph for Deep Voice 3 like decoder.
@@ -210,19 +204,16 @@ class DeepVoiceDecoder(Decoder):
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
 
-    if self._both and self._reduction_factor == 1:
-        mel_inputs, _ = tf.split(
-            mel_inputs,
-            [self._n_feats['mel'], self._n_feats['magnitude']],
-            axis=2
-        )
+    if self.both and self.reduction_factor == 1:
+      mel_inputs, _ = tf.split(
+          mel_inputs,
+          [self.mel_feats, self.mag_feats],
+          axis=2
+      )
       
     # Dropout on mel_input
-    if training:
-      mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
-    else:
-      mel_inputs = tf.nn.dropout(mel_inputs, 1.)
-
+    mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
+    
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
@@ -314,13 +305,13 @@ class DeepVoiceDecoder(Decoder):
 
     mel_spec_prediction = tf.layers.conv1d(
         inputs=decoder_output,
-        filters=self.num_audio_features * self._reduction_factor,
+        filters=self.mel_feats * self.reduction_factor,
         kernel_size=1,
         name="decoder_postnet_final_proj"
     )
 
     stop_token_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=self.num_audio_features * self._reduction_factor,
+        in_dim=self.mel_feats * self.reduction_factor,
         out_dim=1,
         dropout=self.params['keep_prob'],
         var_scope_name="stop_token_proj",
@@ -332,7 +323,7 @@ class DeepVoiceDecoder(Decoder):
     stop_token_logits = stop_token_fc(mel_spec_prediction)
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
-    if self._both:
+    if self.both:
 
       # ----- Converter ---------------------------------------------
 
@@ -375,7 +366,7 @@ class DeepVoiceDecoder(Decoder):
 
         mag_spec_prediction = tf.layers.conv1d(
             mag_spec_prediction,
-            self._n_feats["magnitude"] * self._reduction_factor,
+            self.mag_feats * self.reduction_factor,
             1,
             name="converter_post_net_proj",
             use_bias=False,
