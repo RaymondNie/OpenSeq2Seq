@@ -92,7 +92,7 @@ for j in range(Ty // reduction_factor):
     input_spec = predicted_mel
 
   # if stop_predictions[j] > 0.95 and stop_predicted == False:
-  #   stop_timestep = j + 5
+  #   stop_timestep = j * reduction_factor
   #   stop_predicted = True
 
 # Plot alignments and save audio

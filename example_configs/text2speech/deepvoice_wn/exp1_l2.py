@@ -64,7 +64,7 @@ base_params = {
   "print_samples_steps": 250,
   "save_checkpoint_steps": 500,
   "save_to_tensorboard": True,
-  "regularizer": tf.contrib.layers.l1_regularizer,
+  "regularizer": tf.contrib.layers.l2_regularizer,
   "regularizer_params": {
     'scale': 1e-6
   },
@@ -138,6 +138,6 @@ base_params = {
   # Loss params
   "loss": DeepVoiceLoss,
   "loss_params": {
-    "l1_loss": True
+    "l1_loss": False
   }
 }

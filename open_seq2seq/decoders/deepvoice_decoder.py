@@ -151,6 +151,12 @@ class DeepVoiceDecoder(Decoder):
 
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
+
+    if self._model.get_data_layer().params['reduction_factor'] != None:
+      self._reduction_factor = self._model.get_data_layer().params['reduction_factor']
+    else:
+      self._reduction_factor = 1
+
     self._n_feats = model.get_data_layer().params['num_audio_features']
     if "both" in self._model.get_data_layer().params['output_type']:
       self._both = True
@@ -158,10 +164,6 @@ class DeepVoiceDecoder(Decoder):
     else:
       self._both = False
       self.num_audio_features = self._n_feats
-    if self._model.get_data_layer().params['reduction_factor'] != None:
-      self._reduction_factor = self._model.get_data_layer().params['reduction_factor']
-    else:
-      self._reduction_factor = 1
 
   def _decode(self, input_dict):
     """Creates TensorFlow graph for Deep Voice 3 like decoder.
@@ -208,18 +210,18 @@ class DeepVoiceDecoder(Decoder):
 
     _batch_size = input_dict['encoder_output']['keys'].get_shape().as_list()[0]
 
-    if self._both:
-      mel_inputs, _ = tf.split(
-          mel_inputs,
-          [self._n_feats['mel'], self._n_feats['magnitude']],
-          axis=2
-      )
+    if self._both and self._reduction_factor == 1:
+        mel_inputs, _ = tf.split(
+            mel_inputs,
+            [self._n_feats['mel'], self._n_feats['magnitude']],
+            axis=2
+        )
       
     # Dropout on mel_input
-    # if training:
-    #   mel_inputs = tf.nn.dropout(mel_inputs, .5)
-    # else:
-    #   mel_inputs = tf.nn.dropout(mel_inputs, 1.)
+    if training:
+      mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
+    else:
+      mel_inputs = tf.nn.dropout(mel_inputs, 1.)
 
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
@@ -239,24 +241,13 @@ class DeepVoiceDecoder(Decoder):
 
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):
-      for i, num in enumerate(self.params['prenet_layers']):
-        mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
-
-        if i == 0:
-          in_dim = self.num_audio_features * self._reduction_factor
-        else:
-          in_dim = self.params['prenet_layers'][i-1]
-
-        dense_layer = ffn_wn_layer.FeedFowardNetworkNormalized(
-            in_dim=in_dim,
-            out_dim=num,
-            dropout=self.params['keep_prob'],
-            var_scope_name="decoder_prenet_fc_{}".format(i),
-            mode="train",
-            normalization_type="weight_norm",
-            regularizer=regularizer
+      for layer, out_channels in enumerate(self.params['prenet_layers']):
+        mel_inputs = tf.layers.conv1d(
+            inputs=mel_inputs,
+            filters=out_channels,
+            kernel_size=1,
+            name="decoder_prenet_proj_{}".format(layer)
         )
-        mel_inputs = tf.nn.relu(dense_layer(mel_inputs))
 
     # [B, Ty, e]
     conv_feats = mel_inputs
@@ -272,32 +263,18 @@ class DeepVoiceDecoder(Decoder):
             [[0, 0], [(self.params['kernel_size'] - 1), 0], [0, 0]]
         )
 
-        if layer == 0:
-          # [B, Ty, c]
-          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
-              in_dim=self.params['emb_size'],
-              out_dim=self.params['channels'],
-              kernel_width=self.params['kernel_size'],
-              mode=self._mode,
-              layer_id=layer,
-              hidden_dropout=self.params['keep_prob'],
-              conv_padding='VALID',
-              decode_padding=False,
-              regularizer=regularizer
-          )
-        else:
-          # [B, Ty, c]
-          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
-              in_dim=self.params['channels'],
-              out_dim=self.params['channels'],
-              kernel_width=self.params['kernel_size'],
-              mode=self._mode,
-              layer_id=layer,
-              hidden_dropout=self.params['keep_prob'],
-              conv_padding='VALID',
-              decode_padding=False,
-              regularizer=regularizer
-          )
+        # [B, Ty, c]
+        conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
+            in_dim=self.params['emb_size'],
+            out_dim=self.params['channels'],
+            kernel_width=self.params['kernel_size'],
+            mode=self._mode,
+            layer_id=layer,
+            hidden_dropout=self.params['keep_prob'],
+            conv_padding='VALID',
+            decode_padding=False,
+            regularizer=regularizer
+        )
 
         queries = conv_layer(padded_inputs)
         queries = (queries[:, :tf.shape(residual)[1], :] + residual) * tf.sqrt(0.5)
@@ -334,8 +311,16 @@ class DeepVoiceDecoder(Decoder):
     decoder_output = conv_feats
 
     # ----- Decoder Postnet ---------------------------------------------
+
+    mel_spec_prediction = tf.layers.conv1d(
+        inputs=decoder_output,
+        filters=self.num_audio_features * self._reduction_factor,
+        kernel_size=1,
+        name="decoder_postnet_final_proj"
+    )
+
     stop_token_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=self.params['emb_size'],
+        in_dim=self.num_audio_features * self._reduction_factor,
         out_dim=1,
         dropout=self.params['keep_prob'],
         var_scope_name="stop_token_proj",
@@ -344,65 +329,57 @@ class DeepVoiceDecoder(Decoder):
         regularizer=regularizer
     )
 
-    stop_token_logits = stop_token_fc(decoder_output)
+    stop_token_logits = stop_token_fc(mel_spec_prediction)
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
-    mel_output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=self.params['emb_size'],
-        out_dim=self.num_audio_features * self._reduction_factor,
-        dropout=self.params['keep_prob'],
-        var_scope_name="mel_proj",
-        mode=self._mode,
-        normalization_type="weight_norm",
-        regularizer=regularizer
-    )    
-    mel_spec_prediction = mel_output_fc(decoder_output)
-
     if self._both:
+
+      # ----- Converter ---------------------------------------------
+
       mag_spec_prediction = mel_spec_prediction
+      with tf.variable_scope("converter", reuse=tf.AUTO_REUSE):
+        mag_spec_prediction = conv_bn_actv(
+            layer_type="conv1d",
+            name="converter_conv_0",
+            inputs=mag_spec_prediction,
+            filters=256,
+            kernel_size=4,
+            activation_fn=tf.nn.relu,
+            strides=1,
+            padding="SAME",
+            regularizer=regularizer,
+            training=training,
+            data_format=self.params.get('postnet_data_format', 'channels_last'),
+            bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
+            bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
+        )
 
-      mag_spec_prediction = conv_bn_actv(
-          layer_type="conv1d",
-          name="conv_0",
-          inputs=mag_spec_prediction,
-          filters=256,
-          kernel_size=4,
-          activation_fn=tf.nn.relu,
-          strides=1,
-          padding="SAME",
-          regularizer=regularizer,
-          training=training,
-          data_format=self.params.get('postnet_data_format', 'channels_last'),
-          bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
-          bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
-      )
+        mag_spec_prediction = conv_bn_actv(
+            layer_type="conv1d",
+            name="converter_conv_1",
+            inputs=mag_spec_prediction,
+            filters=512,
+            kernel_size=4,
+            activation_fn=tf.nn.relu,
+            strides=1,
+            padding="SAME",
+            regularizer=regularizer,
+            training=training,
+            data_format=self.params.get('postnet_data_format', 'channels_last'),
+            bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
+            bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
+        )
 
-      mag_spec_prediction = conv_bn_actv(
-          layer_type="conv1d",
-          name="conv_1",
-          inputs=mag_spec_prediction,
-          filters=512,
-          kernel_size=4,
-          activation_fn=tf.nn.relu,
-          strides=1,
-          padding="SAME",
-          regularizer=regularizer,
-          training=training,
-          data_format=self.params.get('postnet_data_format', 'channels_last'),
-          bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
-          bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
-      )
+        if self._model.get_data_layer()._exp_mag:
+          mag_spec_prediction = tf.exp(mag_spec_prediction)
 
-      if self._model.get_data_layer()._exp_mag:
-        mag_spec_prediction = tf.exp(mag_spec_prediction)
-
-      mag_spec_prediction = tf.layers.conv1d(
-          mag_spec_prediction,
-          self._n_feats["magnitude"],
-          1,
-          name="post_net_proj",
-          use_bias=False,
-      )
+        mag_spec_prediction = tf.layers.conv1d(
+            mag_spec_prediction,
+            self._n_feats["magnitude"] * self._reduction_factor,
+            1,
+            name="converter_post_net_proj",
+            use_bias=False,
+        )
     else:
       mag_spec_prediction = tf.zeros([1])
 

@@ -10,6 +10,7 @@ class DeepVoiceLoss(Loss):
       self._both = True
     else:
       self._both = False
+    self._reduction_factor = self._model.get_data_layer().params['reduction_factor']
 
   def get_required_params(self):
     return dict(
@@ -44,10 +45,12 @@ class DeepVoiceLoss(Loss):
     stop_token_predictions = tf.cast(stop_token_predictions, dtype=tf.float32)
     mel_target = tf.cast(mel_target, dtype=tf.float32)
     stop_token_predictions = tf.cast(stop_token_predictions, dtype=tf.float32)
-
+    
     if self._both:
       mag_pred = input_dict['decoder_output']['outputs'][6]
       mag_pred = tf.cast(mag_pred, dtype=tf.float32)
+
+
     # Add zero padding to the end in the None dimension to get matching time length
     batch_size = tf.shape(mel_target)[0]
     num_feats = tf.shape(mel_target)[2]
@@ -93,11 +96,14 @@ class DeepVoiceLoss(Loss):
          [mag_pred, mag_pad], axis=1
       )
 
-      mel_target, mag_target = tf.split(
-          mel_target,
-          [self._n_feats['mel'], self._n_feats['magnitude']],
-          axis=2
-      )
+      if self._reduction_factor != 1:
+        mag_target = input_dict['target_tensors'][3]
+      else:
+        mel_target, mag_target = tf.split(
+            mel_target,
+            [self._n_feats['mel'], self._n_feats['magnitude']],
+            axis=2
+        )
 
     mask = tf.sequence_mask(lengths=spec_lengths, maxlen=max_length, dtype=tf.float32)
     mask = tf.expand_dims(mask, axis=-1)
@@ -123,7 +129,7 @@ class DeepVoiceLoss(Loss):
       )
       if self._both:
         mag_loss = tf.losses.mean_squared_error(
-            labels=mag_target, predictions=mag_pred
+            labels=mag_target, predictions=mag_pred, weights=mask
         )
 
     stop_token_loss = tf.nn.sigmoid_cross_entropy_with_logits(

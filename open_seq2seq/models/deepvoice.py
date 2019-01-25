@@ -70,7 +70,8 @@ class DeepVoice(EncoderDecoderModel):
   def maybe_print_logs(self, input_values, output_values, training_step):
     predicted_mel_output = output_values[0]
     stop_prediction = output_values[1]
-    target_mel_output, stop_target, _ = input_values['target_tensors']
+    target_mel_output = input_values['target_tensors'][0]
+    stop_target = input_values['target_tensors'][1]
 
     predicted_mel_sample = predicted_mel_output[0]
     stop_prediction_sample = stop_prediction[0]
@@ -122,10 +123,17 @@ class DeepVoice(EncoderDecoderModel):
         append="train"
     )
 
+    if self.params['reduction_factor'] != None:
+      predicted_mel_sample = np.reshape(predicted_mel_sample, (-1, self.get_data_layer().params['num_audio_features']["mel"]))
+      reduction_factor = self.get_data_layer().params['reduction_factor']
 
     if "both" in self.get_data_layer().params['output_type']:
       predicted_mag_spec = output_values[6][0]
-      num_audio_features = self.get_data_layer().params['num_audio_features']["mel"]
+
+      if reduction_factor != 1:
+        predicted_mag_spec = np.reshape(predicted_mag_spec, (-1, self.get_data_layer().params['num_audio_features']["magnitude"]))
+
+      predicted_mag_spec = predicted_mag_spec[:spec_len * reduction_factor - 1, :]
       predicted_mag_spec = self.get_data_layer().get_magnitude_spec(predicted_mag_spec)
       wav_summary = save_audio(
           predicted_mag_spec,
@@ -136,13 +144,8 @@ class DeepVoice(EncoderDecoderModel):
           mode="mag",
           save_format=save_format,
       )
-    else:
-      num_audio_features = self.get_data_layer().params['num_audio_features']
 
-    if self.params['reduction_factor'] != None:
-      predicted_mel_sample = np.reshape(predicted_mel_sample, (-1, num_audio_features))
-
-    predicted_mel_sample = predicted_mel_sample[:spec_len - 1, :]
+    predicted_mel_sample = predicted_mel_sample[:spec_len * reduction_factor - 1, :]
     predicted_mel_sample = self.get_data_layer().get_magnitude_spec(predicted_mel_sample, is_mel=True)
 
     wav_summary = save_audio(

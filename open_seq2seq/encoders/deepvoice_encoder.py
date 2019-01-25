@@ -146,19 +146,12 @@ class DeepVoiceEncoder(Encoder):
     # ----- Encoder PostNet -----------------------------------------------
     with tf.variable_scope("encoder_postnet"):
       # [B, Tx, e]
-      encoder_postnet_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-          in_dim=self.params['channels'],
-          out_dim=self.params['emb_size'],
-          dropout=self.params['keep_prob'],
-          var_scope_name="encoder_postnet_fc",
-          mode="train",
-          normalization_type="weight_norm",
-          regularizer=regularizer,
-          init_var=None,
-          init_weights=None
+      keys = tf.layers.conv1d(
+          inputs=conv_output,
+          filters=self.params['emb_size'],
+          kernel_size=1,
+          name="encoder_postnet_proj"
       )
-
-      keys = encoder_postnet_fc(conv_output)
       vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
 
     if training == False:

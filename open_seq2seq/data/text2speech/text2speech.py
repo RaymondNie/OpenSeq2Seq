@@ -372,20 +372,49 @@ class Text2SpeechDataLayer(DataLayer):
 
     if self.params.get('reduction_factor', None) != None:
       self.reduction_factor = self.params['reduction_factor']
-      shape = tf.shape(spec)
-      spec = tf.reshape(spec, [shape[0], shape[1] // self.reduction_factor, -1])
-      spec.set_shape(
-        [self.params['batch_size'], None, num_audio_features * self.reduction_factor]
-      )
+      if self._both:
+        # Reduce the mag and mel seperately
+        mel_feats = self.params['num_audio_features']['mel']
+        mag_feats = self.params['num_audio_features']['magnitude']
+
+        mel_spec, mag_spec = tf.split(
+            spec,
+            [mel_feats, mag_feats],
+            axis=2
+        )
+
+        mel_shape = tf.shape(mel_spec)
+        mag_shape = tf.shape(mag_spec)
+
+        mel_spec = tf.reshape(mel_spec, [mel_shape[0], mel_shape[1] // self.reduction_factor, -1])
+        mag_spec = tf.reshape(mag_spec, [mag_shape[0], mag_shape[1] // self.reduction_factor, -1])
+
+        mel_spec.set_shape(
+          [self.params['batch_size'], None, mel_feats * self.reduction_factor]
+        )
+        mag_spec.set_shape(
+          [self.params['batch_size'], None, mag_feats * self.reduction_factor]
+        )
+
+      else:
+        shape = tf.shape(spec)
+        spec = tf.reshape(spec, [shape[0], shape[1] // self.reduction_factor, -1])
+        spec.set_shape(
+          [self.params['batch_size'], None, num_audio_features * self.reduction_factor]
+        )
+        
       spec_length = spec_length // self.reduction_factor
       stop_token_target = stop_token_target[:, ::self.reduction_factor]
-    else:
-      self.reduction_factor = 1
 
     if self.params['mode'] != 'infer':
-      self._input_tensors['target_tensors'] = [
-          spec, stop_token_target, spec_length
-      ]
+      if self._both and self.reduction_factor != None:
+        self._input_tensors['target_tensors'] = [
+            mel_spec, stop_token_target, spec_length, mag_spec
+        ]
+      else:
+        self._input_tensors['target_tensors'] = [
+            spec, stop_token_target, spec_length
+        ]
 
   def _parse_audio_transcript_element(self, element):
     """Parses tf.data element from TextLineDataset into audio and text.
