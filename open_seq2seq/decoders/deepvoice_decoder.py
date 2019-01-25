@@ -152,7 +152,7 @@ class DeepVoiceDecoder(Decoder):
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
     self.reduction_factor = model.get_data_layer().params['reduction_factor']
-    self.both = model.get_data_layer().params['output_type']
+    self.both = "both" in model.get_data_layer().params['output_type']
     if self.both:
       self.mel_feats = model.get_data_layer().params['num_audio_features']['mel']
       self.mag_feats = model.get_data_layer().params['num_audio_features']['magnitude']

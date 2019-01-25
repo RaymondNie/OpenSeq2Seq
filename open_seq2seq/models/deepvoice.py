@@ -66,7 +66,7 @@ class DeepVoice(EncoderDecoderModel):
     super(DeepVoice, self).__init__(params, mode=mode, hvd=hvd)
     self.save_to_tensorboard = self.params['save_to_tensorboard']
     self.reduction_factor = self.params['data_layer_params']['reduction_factor']
-    self.both = self.params['data_layer_params']['output_type']
+    self.both = "both" in self.params['data_layer_params']['output_type']
     if self.both:
       self.mel_feats = self.params['data_layer_params']['num_audio_features']['mel']
       self.mag_feats = self.params['data_layer_params']['num_audio_features']['magnitude']
