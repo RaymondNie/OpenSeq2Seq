@@ -116,9 +116,10 @@ def attention_block(queries,
     tensor = output_fc(ctx)
 
     # returns the alignment of the first one
+    all_alignments = alignments
     alignments = alignments[0]  # (Ty, Tx)
 
-  return tensor, alignments, max_attentions
+  return tensor, alignments, max_attentions, all_alignments
 
 class DeepVoiceDecoder(Decoder):
   """
@@ -212,13 +213,14 @@ class DeepVoiceDecoder(Decoder):
       )
       
     # Dropout on mel_input
-    mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
+    mel_inputs = tf.nn.dropout(mel_inputs, 0.5)
     
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = self.params['pos_rate'] # Initial rate for single speaker?
+    # position_rate = self.params['pos_rate'] # Initial rate for single speaker?
+    position_rate = tf.cast(max_query_len/max_key_len, dtype=tf.float32)
 
     key_pe = get_position_encoding(
         length=max_key_len, 
@@ -229,7 +231,6 @@ class DeepVoiceDecoder(Decoder):
         length=max_query_len, 
         hidden_size=self.params['channels']
     )
-
     # ----- Decoder PreNet -----------------------------------------------
     with tf.variable_scope("decoder_prenet", reuse=tf.AUTO_REUSE):
       for layer, out_channels in enumerate(self.params['prenet_layers']):
@@ -281,7 +282,7 @@ class DeepVoiceDecoder(Decoder):
           prev_max_attentions = prev_max_attentions_list[layer]
           enforce_monotonicity = monotonic_alignment[layer]
 
-        tensor, alignments, max_attentions = attention_block(
+        tensor, alignments, max_attentions, all_alignments = attention_block(
             queries=queries,
             keys=key,
             vals=value,
@@ -382,6 +383,7 @@ class DeepVoiceDecoder(Decoder):
             key_lens,
             spec_lens,
             max_attentions_list,
-            mag_spec_prediction
+            mag_spec_prediction,
+            all_alignments
         ],
     }
