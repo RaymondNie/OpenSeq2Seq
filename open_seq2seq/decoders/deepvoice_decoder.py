@@ -209,7 +209,7 @@ class DeepVoiceDecoder(Decoder):
       )
       
     # Dropout on mel_input
-    mel_inputs = tf.nn.dropout(mel_inputs, 0.5)
+    mel_inputs = tf.nn.dropout(mel_inputs, self.params['keep_prob'])
     
     # ----- Positional Encoding ------------------------------------------
     max_key_len = tf.shape(key)[1]
