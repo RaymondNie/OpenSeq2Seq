@@ -95,7 +95,6 @@ def attention_block(queries,
         infer_mask = tf.logical_or(mask, reverse_mask)
         infer_mask = tf.tile(tf.expand_dims(infer_mask, 1), [1, Ty, 1])
         attention_weights = tf.where(tf.equal(infer_mask, False), attention_weights, mask_values)
-
       alignments = tf.nn.softmax(attention_weights)
       max_attentions = tf.argmax(alignments, -1) # (N, Ty/r)
 
@@ -115,11 +114,7 @@ def attention_block(queries,
     )
     tensor = output_fc(ctx)
 
-    # returns the alignment of the first one
-    all_alignments = alignments
-    alignments = alignments[0]  # (Ty, Tx)
-
-  return tensor, alignments, max_attentions, all_alignments
+  return tensor, alignments, max_attentions
 
 class DeepVoiceDecoder(Decoder):
   """
@@ -153,6 +148,7 @@ class DeepVoiceDecoder(Decoder):
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
     self.reduction_factor = model.get_data_layer().params['reduction_factor']
+    self.weight_norm = model.params['weight_norm']
     self.both = "both" in model.get_data_layer().params['output_type']
     if self.both:
       self.mel_feats = model.get_data_layer().params['num_audio_features']['mel']
@@ -219,8 +215,7 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    # position_rate = self.params['pos_rate'] # Initial rate for single speaker?
-    position_rate = tf.cast(max_query_len/max_key_len, dtype=tf.float32)
+    position_rate = self.params['pos_rate'] # Initial rate for single speaker?
 
     key_pe = get_position_encoding(
         length=max_key_len, 
@@ -255,21 +250,45 @@ class DeepVoiceDecoder(Decoder):
             [[0, 0], [(self.params['kernel_size'] - 1), 0], [0, 0]]
         )
 
-        # [B, Ty, c]
-        conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
-            in_dim=self.params['emb_size'],
-            out_dim=self.params['channels'],
-            kernel_width=self.params['kernel_size'],
-            mode=self._mode,
-            layer_id=layer,
-            hidden_dropout=self.params['keep_prob'],
-            conv_padding='VALID',
-            decode_padding=False,
-            regularizer=regularizer
-        )
+        if self.weight_norm:
+          # [B, Ty, c]
+          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
+              in_dim=self.params['emb_size'],
+              out_dim=self.params['channels'],
+              kernel_width=self.params['kernel_size'],
+              mode=self._mode,
+              layer_id=layer,
+              hidden_dropout=self.params['keep_prob'],
+              conv_padding='VALID',
+              decode_padding=False,
+              regularizer=regularizer
+          )
 
-        queries = conv_layer(padded_inputs)
-        queries = (queries[:, :tf.shape(residual)[1], :] + residual) * tf.sqrt(0.5)
+          queries = conv_layer(padded_inputs)
+          queries = (queries[:, :tf.shape(residual)[1], :] + residual) * tf.sqrt(0.5)
+
+        else:
+          queries = conv_bn_res_bn_actv(
+              layer_type="conv1d",
+              name="conv_bn_res_bn_actv_{}".format(layer+1),
+              inputs=padded_inputs,
+              res_inputs=conv_feats,
+              filters=self.params['channels'],
+              kernel_size=self.params['kernel_size'],
+              activation_fn=tf.nn.relu,
+              strides=1,
+              padding="VALID",
+              regularizer=regularizer,
+              training=training,
+              data_format="channels_last",
+              bn_momentum=0.9,
+              bn_epsilon=1e-3
+          )
+
+          queries *= tf.sqrt(0.5)          
+
+        # Set residual for attention block
+        residual = queries
 
         # Add the positional encoding
         key += key_pe
@@ -282,7 +301,7 @@ class DeepVoiceDecoder(Decoder):
           prev_max_attentions = prev_max_attentions_list[layer]
           enforce_monotonicity = monotonic_alignment[layer]
 
-        tensor, alignments, max_attentions, all_alignments = attention_block(
+        tensor, alignments, max_attentions = attention_block(
             queries=queries,
             keys=key,
             vals=value,
@@ -383,7 +402,6 @@ class DeepVoiceDecoder(Decoder):
             key_lens,
             spec_lens,
             max_attentions_list,
-            mag_spec_prediction,
-            all_alignments
+            mag_spec_prediction
         ],
     }

@@ -44,6 +44,7 @@ class DeepVoiceEncoder(Encoder):
 
   def __init__(self, params, model, name='deepvoice3_encoder', mode='train'):
     super(DeepVoiceEncoder, self).__init__(params, model, name, mode)
+    self.weight_norm = model.params['weight_norm']
 
   def _encode(self, input_dict):
     """Creates TensorFlow graph for Deep Voice 3 like encoder.
@@ -112,20 +113,7 @@ class DeepVoiceEncoder(Encoder):
             [[0, 0], [(self.params['kernel_size'] - 1) // 2, (self.params['kernel_size'] - 1) // 2], [0, 0]]
         )
 
-        if layer == 0:
-          # [B, Ty, c]
-          conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
-              in_dim=self.params['channels'],
-              out_dim=self.params['channels'],
-              kernel_width=self.params['kernel_size'],
-              mode=self._mode,
-              layer_id=layer,
-              hidden_dropout=self.params['keep_prob'],
-              conv_padding='VALID',
-              decode_padding=False,
-              regularizer=regularizer
-          )
-        else:
+        if self.weight_norm:
           # [B, Ty, c]
           conv_layer = conv_wn_layer.Conv1DNetworkNormalized(
               in_dim=self.params['channels'],
@@ -139,7 +127,24 @@ class DeepVoiceEncoder(Encoder):
               regularizer=regularizer
           )
 
-        conv_feats = (conv_layer(padded_inputs) + residual) * tf.sqrt(0.5)
+          conv_feats = (conv_layer(padded_inputs) + residual) * tf.sqrt(0.5)
+        else:
+          conv_feats = conv_bn_res_bn_actv(
+              layer_type="conv1d",
+              name="conv_bn_res_bn_actv_{}".format(layer+1),
+              inputs=padded_inputs,
+              res_inputs=conv_feats,
+              filters=self.params['channels'],
+              kernel_size=self.params['kernel_size'],
+              activation_fn=tf.nn.relu,
+              strides=1,
+              padding="VALID",
+              regularizer=regularizer,
+              training=training,
+              data_format="channels_last",
+              bn_momentum=0.9,
+              bn_epsilon=1e-3
+          )
 
     conv_output = conv_feats
 

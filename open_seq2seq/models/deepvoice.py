@@ -59,6 +59,7 @@ class DeepVoice(EncoderDecoderModel):
     return dict(
         EncoderDecoderModel.get_optional_params(), **{
             'save_to_tensorboard': bool,
+            'weight_norm': bool
         }
     )
 
@@ -98,8 +99,10 @@ class DeepVoice(EncoderDecoderModel):
       predicted_mel_sample
     ]
 
-    for alignment_layer_plot in alignment_list:
-      specs.append(alignment_layer_plot)
+    # Append all 4 layers 
+    # Layer, Batch, Tx, Ty
+    for layer in range(len(alignment_list)):
+      specs.append(alignment_list[layer][0])
 
     titles = [
         "target output",
