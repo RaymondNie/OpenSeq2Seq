@@ -11,7 +11,7 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 base_model = DeepVoice
 dataset = "LJ"
 dataset_location = "/data/LJSpeech"
-output_type = "mel"
+output_type = "both"
 
 if dataset == "MAILABS":
   trim = True

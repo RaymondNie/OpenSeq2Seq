@@ -11,7 +11,7 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 base_model = DeepVoice
 dataset = "LJ"
 dataset_location = "/data/LJSpeech"
-output_type = "both"
+output_type = "mel"
 
 if dataset == "MAILABS":
   trim = True
@@ -82,7 +82,7 @@ base_params = {
   },
   "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
-  "batch_size_per_gpu": 512,
+  "batch_size_per_gpu": 16,
   "max_steps": 200000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
