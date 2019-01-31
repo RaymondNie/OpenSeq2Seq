@@ -4,7 +4,7 @@ import math
 
 from open_seq2seq.parts.transformer.utils import get_position_encoding
 from .decoder import Decoder
-from open_seq2seq.parts.deepvoice.utils import conv_block, glu
+from open_seq2seq.parts.deepvoice.utils import conv_block, glu, add_regularization
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.rnns.attention_wrapper import _maybe_mask_score
 from open_seq2seq.parts.convs2s import ffn_wn_layer, conv_wn_layer
@@ -24,6 +24,7 @@ def attention_block(queries,
                     window_backwards=0,
                     scope="attention_block",
                     regularizer=None,
+                    weight_norm=True,
                     reuse=None):
   '''Attention block.
    Args:
@@ -42,36 +43,57 @@ def attention_block(queries,
   _, Tx, k_in_dim = keys.get_shape().as_list()
   Ty = tf.shape(queries)[1]
   Tx = tf.shape(keys)[1]
+  vars_to_regularize = []
 
   with tf.variable_scope("{}_{}".format(scope, layer), reuse=reuse):
-    query_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=q_in_dim,
-        out_dim=attn_size,
-        dropout=keep_prob,
-        var_scope_name="query_fc",
-        mode=mode,
-        normalization_type="weight_norm",
-        regularizer=regularizer
-    )
-    key_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=k_in_dim,
-        out_dim=attn_size,
-        dropout=keep_prob,
-        var_scope_name="key_fc",
-        mode=mode,
-        normalization_type="weight_norm",
-        regularizer=regularizer,
-        init_weights=query_fc.V.initialized_value()
-    )
-    val_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=k_in_dim,
-        out_dim=attn_size,
-        dropout=keep_prob,
-        var_scope_name="val_fc",
-        mode=mode,
-        normalization_type="weight_norm",
-        regularizer=regularizer
-    )
+    if weight_norm:
+      query_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+          in_dim=q_in_dim,
+          out_dim=attn_size,
+          dropout=keep_prob,
+          var_scope_name="query_fc",
+          mode=mode,
+          normalization_type="weight_norm",
+          regularizer=regularizer
+      )
+      key_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+          in_dim=k_in_dim,
+          out_dim=attn_size,
+          dropout=keep_prob,
+          var_scope_name="key_fc",
+          mode=mode,
+          normalization_type="weight_norm",
+          regularizer=regularizer,
+          init_weights=query_fc.V.initialized_value()
+      )
+      val_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+          in_dim=k_in_dim,
+          out_dim=attn_size,
+          dropout=keep_prob,
+          var_scope_name="val_fc",
+          mode=mode,
+          normalization_type="weight_norm",
+          regularizer=regularizer
+      )
+    else:
+      query_fc = tf.layers.Dense(
+          name="query_fc",
+          units=attn_size,
+          use_bias=True
+      )
+      key_fc = tf.layers.Dense(
+          name="key_fc",
+          units=attn_size,
+          use_bias=True
+      )
+      val_fc = tf.layers.Dense(
+          name="val_fc",
+          units=attn_size,
+          use_bias=True
+      )
+      vars_to_regularize += query_fc.trainable_variables
+      vars_to_regularize += key_fc.trainable_variables
+      vars_to_regularize += val_fc.trainable_variables
 
     queries = query_fc(queries)
     keys = key_fc(keys)
@@ -90,8 +112,7 @@ def attention_block(queries,
       else: # infer
         # Create a mask that starts from the last attended-to + window size
         mask = tf.sequence_mask(prev_max_attentions - window_backwards, Tx)
-        # mask = tf.Print(mask,[mask])
-        reverse_mask = tf.sequence_mask(Tx - prev_max_attentions - window_size + window_backwards, Tx)[:,::-1]
+        reverse_mask = tf.sequence_mask(Tx - prev_max_attentions - window_size + window_backwards - 1, Tx)[:,::-1]
         infer_mask = tf.logical_or(mask, reverse_mask)
         infer_mask = tf.tile(tf.expand_dims(infer_mask, 1), [1, Ty, 1])
         attention_weights = tf.where(tf.equal(infer_mask, False), attention_weights, mask_values)
@@ -103,15 +124,27 @@ def attention_block(queries,
       ctx = tf.matmul(ctx, vals) * tf.rsqrt(tf.to_float(Tx))# (N, Ty/r, a)
 
     # Restore shape for residual connection
-    output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=attn_size,
-        out_dim=emb_size,
-        dropout=keep_prob,
-        var_scope_name="attn_output_ffn_wn",
-        mode=mode,
-        normalization_type="weight_norm",
-        regularizer=regularizer
-    )
+    if weight_norm:
+      output_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+          in_dim=attn_size,
+          out_dim=emb_size,
+          dropout=keep_prob,
+          var_scope_name="attn_output_ffn_wn",
+          mode=mode,
+          normalization_type="weight_norm",
+          regularizer=regularizer
+      )
+    else:
+      output_fc = tf.layers.Dense(
+          name="output_fc",
+          units=emb_size,
+          use_bias=True
+      )
+      vars_to_regularize += output_fc.trainable_variables
+
+    if weight_norm == False and regularizer and mode == "train":
+      add_regularization(vars_to_regularize, regularizer)
+
     tensor = output_fc(ctx)
 
   return tensor, alignments, max_attentions
@@ -141,7 +174,10 @@ class DeepVoiceDecoder(Decoder):
         Decoder.get_optional_params(), **{
             'speaker_emb': None,
             'window_size': int,
-            'monotonic_alignment': list
+            'monotonic_alignment': list,
+            "converter_layers": int,
+            "converter_kernel_size": int,
+            "converter_channels": int
         }
     )
 
@@ -183,6 +219,7 @@ class DeepVoiceDecoder(Decoder):
     training = (self._mode == 'train')
     alignments_list = []
     max_attentions_list = []
+    vars_to_regularize = []
 
     if training:
       # [B, Ty, n]
@@ -233,7 +270,8 @@ class DeepVoiceDecoder(Decoder):
             inputs=mel_inputs,
             filters=out_channels,
             kernel_size=1,
-            name="decoder_prenet_proj_{}".format(layer)
+            name="decoder_prenet_proj_{}".format(layer),
+            kernel_regularizer=regularizer
         )
 
     # [B, Ty, e]
@@ -312,7 +350,8 @@ class DeepVoiceDecoder(Decoder):
             mode=self._mode,
             prev_max_attentions=prev_max_attentions,
             enforce_monotonicity=enforce_monotonicity,
-            regularizer=regularizer
+            regularizer=regularizer,
+            weight_norm=self.weight_norm
         )
 
         conv_feats = (tensor + residual) * tf.sqrt(0.5)
@@ -327,10 +366,12 @@ class DeepVoiceDecoder(Decoder):
         inputs=decoder_output,
         filters=self.mel_feats * self.reduction_factor,
         kernel_size=1,
-        name="decoder_postnet_final_proj"
+        name="decoder_postnet_final_proj",
+        kernel_regularizer=regularizer
     )
 
-    stop_token_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+    if self.weight_norm:
+      stop_token_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
         in_dim=self.mel_feats * self.reduction_factor,
         out_dim=1,
         dropout=self.params['keep_prob'],
@@ -338,48 +379,38 @@ class DeepVoiceDecoder(Decoder):
         mode=self._mode,
         normalization_type="weight_norm",
         regularizer=regularizer
-    )
+      )
+    else:
+      stop_token_fc = tf.layers.Dense(
+          name="stop_token_fc",
+          units=1,
+          use_bias=True
+      )
+      vars_to_regularize += stop_token_fc.trainable_variables
 
-    stop_token_logits = stop_token_fc(mel_spec_prediction)
+    stop_token_logits = stop_token_fc(decoder_output)
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
 
     if self.both:
-
       # ----- Converter ---------------------------------------------
-
       mag_spec_prediction = mel_spec_prediction
       with tf.variable_scope("converter", reuse=tf.AUTO_REUSE):
-        mag_spec_prediction = conv_bn_actv(
-            layer_type="conv1d",
-            name="converter_conv_0",
-            inputs=mag_spec_prediction,
-            filters=256,
-            kernel_size=4,
-            activation_fn=tf.nn.relu,
-            strides=1,
-            padding="SAME",
-            regularizer=regularizer,
-            training=training,
-            data_format=self.params.get('postnet_data_format', 'channels_last'),
-            bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
-            bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
-        )
-
-        mag_spec_prediction = conv_bn_actv(
-            layer_type="conv1d",
-            name="converter_conv_1",
-            inputs=mag_spec_prediction,
-            filters=512,
-            kernel_size=4,
-            activation_fn=tf.nn.relu,
-            strides=1,
-            padding="SAME",
-            regularizer=regularizer,
-            training=training,
-            data_format=self.params.get('postnet_data_format', 'channels_last'),
-            bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
-            bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
-        )
+        for layer in range(self.params['converter_layers']):
+          mag_spec_prediction = conv_bn_actv(
+              layer_type="conv1d",
+              name="converter_conv_{}".format(layer),
+              inputs=mag_spec_prediction,
+              filters=self.params['converter_channels'],
+              kernel_size=self.params['converter_kernel_size'],
+              activation_fn=tf.nn.relu,
+              strides=1,
+              padding="SAME",
+              regularizer=regularizer,
+              training=training,
+              data_format=self.params.get('postnet_data_format', 'channels_last'),
+              bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
+              bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
+          )
 
         if self._model.get_data_layer()._exp_mag:
           mag_spec_prediction = tf.exp(mag_spec_prediction)
@@ -390,9 +421,14 @@ class DeepVoiceDecoder(Decoder):
             1,
             name="converter_post_net_proj",
             use_bias=False,
+            kernel_regularizer=regularizer
         )
     else:
       mag_spec_prediction = tf.zeros([1])
+
+    # Add regularization
+    if self.weight_norm == False and training and regularizer:
+      add_regularization(vars_to_regularize, regularizer)
 
     return {
         'outputs': [

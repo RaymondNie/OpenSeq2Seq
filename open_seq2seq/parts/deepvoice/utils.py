@@ -1,6 +1,22 @@
 import tensorflow as tf
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv
 
+def add_regularization(vars_to_regularize, regularizer):
+  """
+  Adds regularization to all prenet kernels
+  """
+  for weights in vars_to_regularize:
+    if "bias" not in weights.name:
+      # print("Added regularizer to {}".format(weights.name))
+      if weights.dtype.base_dtype == tf.float16:
+        tf.add_to_collection(
+            'REGULARIZATION_FUNCTIONS', (weights, regularizer)
+        )
+      else:
+        tf.add_to_collection(
+            ops.GraphKeys.REGULARIZATION_LOSSES, regularizer(weights)
+        )
+
 def glu(inputs, speaker_emb=None):
   '''
   Deep Voice 3 GLU that supports speaker embeddings

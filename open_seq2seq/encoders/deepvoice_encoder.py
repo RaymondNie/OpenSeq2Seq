@@ -11,7 +11,7 @@ from tensorflow.python.framework import ops
 from open_seq2seq.parts.rnns.utils import single_cell
 from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_bn_res_bn_actv
 from open_seq2seq.parts.convs2s.utils import gated_linear_units
-from open_seq2seq.parts.deepvoice.utils import conv_block, glu
+from open_seq2seq.parts.deepvoice.utils import conv_block, glu, add_regularization
 from open_seq2seq.parts.convs2s import ffn_wn_layer, conv_wn_layer
 
 from .encoder import Encoder
@@ -67,6 +67,7 @@ class DeepVoiceEncoder(Encoder):
     regularizer = self.params.get('regularizer', None)
     src_vocab_size = self._model.get_data_layer().params['src_vocab_size']
     key_lens = input_dict['source_tensors'][1]
+    vars_to_regularize = []
 
     # ----- Text embedding -----------------------------------------------
     with tf.variable_scope("embedding"):
@@ -86,17 +87,26 @@ class DeepVoiceEncoder(Encoder):
     # ----- Encoder PreNet -----------------------------------------------
     with tf.variable_scope("encoder_prenet"):
       # [B, Tx, c]
-      embedding_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-          in_dim=self.params['emb_size'],
-          out_dim=self.params['channels'],
-          dropout=self.params['keep_prob'],
-          var_scope_name="embedding_fc",
-          mode=self._mode,
-          normalization_type="weight_norm",
-          regularizer=regularizer,
-          init_var=None,
-          init_weights=None
-      )
+      if self.weight_norm:
+        embedding_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
+            in_dim=self.params['emb_size'],
+            out_dim=self.params['channels'],
+            dropout=self.params['keep_prob'],
+            var_scope_name="embedding_fc",
+            mode=self._mode,
+            normalization_type="weight_norm",
+            regularizer=regularizer,
+            init_var=None,
+            init_weights=None
+        )
+      else:
+        embedding_fc = tf.layers.Dense(
+            name="embedding_proj",
+            units=self.params['channels'],
+            use_bias=True
+        )
+        vars_to_regularize += embedding_fc.trainable_variables
+
       embedding_proj = embedding_fc(embedded_inputs)
 
     conv_feats = embedding_proj
@@ -155,9 +165,12 @@ class DeepVoiceEncoder(Encoder):
           inputs=conv_output,
           filters=self.params['emb_size'],
           kernel_size=1,
-          name="encoder_postnet_proj"
+          name="encoder_postnet_proj",
+          kernel_regularizer=regularizer
       )
       vals = tf.add(keys, embedded_inputs) * tf.sqrt(0.5)
+
+    add_regularization(vars_to_regularize, regularizer)
 
     if training == False:
       return {
