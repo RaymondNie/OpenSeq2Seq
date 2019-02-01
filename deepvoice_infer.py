@@ -13,7 +13,7 @@ from open_seq2seq.models.text2speech import plot_spectrograms, save_audio
 args = [
         "--config_file=example_configs/text2speech/deepvoice3_infer.py",
         "--mode=interactive_infer",
-        "--logdir=exp17-50dropout/deepvoice_fp32/logs/",
+        "--logdir=bn_batch512/exp6/logs/",
 ]
 
 # A simpler version of what run.py does. It returns the created model and its 
@@ -44,26 +44,30 @@ saver_T2S.restore(sess, checkpoint_T2S)
 n_fft = model_T2S.get_data_layer().n_fft
 sampling_rate = model_T2S.get_data_layer().sampling_rate
 Ty = 500 # max length of sound
-decoder_layers = config_params['decoder_params']['decoder_layers']
-pad_to = config_params['data_layer_params'].get('pad_to', 8)
-reduction_factor = config_params.get('reduction_factor', 1)
-if "both" in model_T2S.get_data_layer().params.get('output_type', None):
-  both = True
-  num_audio_features = model_T2S.get_data_layer().params['num_audio_features']['mel']
-  mag_audio_features = model_T2S.get_data_layer().params['num_audio_features']['magnitude']
-else:
-  num_audio_features = model_T2S.get_data_layer().params.get('num_audio_features', 80)
-  mag_audio_features = 0
-  both = False
 
-# Starting values
-# text = "test one two."
-text = "testing random sentence made out of many words."
+reduction_factor = model_T2S.get_data_layer().params['reduction_factor']
+both = "both" in model_T2S.get_data_layer().params['output_type']
+
+if both:
+  mel_feats = model_T2S.get_data_layer().params['num_audio_features']['mel']
+  mag_feats =  model_T2S.get_data_layer().params['num_audio_features']['magnitude']
+  predicted_mag = np.zeros((1, Ty, mag_feats * reduction_factor), np.float32)
+  predicted_mel = np.zeros((1, Ty, mel_feats * reduction_factor), np.float32)
+else:
+  mel_feats = model_T2S.get_data_layer().params['num_audio_features']
+  predicted_mel = np.zeros((1, Ty, mel_feats * reduction_factor), np.float32)
+
+
+decoder_layers = config_params['decoder_params']['decoder_layers']
+pad_to = model_T2S.get_data_layer().params.get('pad_to', 8)
+
+# Initial text values with proper padding
+text = "something went wrong"
 text_length = len(text)
 text_length += pad_to - ((text_length + 2) % pad_to) + 2
-input_spec = np.zeros((1, Ty, (num_audio_features + mag_audio_features) * reduction_factor), np.float32)
-predicted_mel = np.zeros((1, Ty, num_audio_features * reduction_factor), np.float32)
-predicted_mag = np.zeros((1, Ty, mag_audio_features * reduction_factor), np.float32)
+
+# Initial spectrogram value and arrays to hold predicted values
+input_spec = np.zeros((1, Ty, mel_feats * reduction_factor), np.float32)
 spec_lens = np.array([[Ty]], np.int32)
 prev_max_attentions_li = np.zeros((decoder_layers, 1), np.int32)
 alignments_li = np.zeros((decoder_layers, Ty, text_length), np.float32)
@@ -83,57 +87,62 @@ for j in range(Ty // reduction_factor):
 
   prev_max_attentions_li = np.array(_max_attentions_li)[:,:,j]
   predicted_mel[:,j,:] = _mel_output[:,j,:]
-  alignments_li[:,j,:] = np.array(_alignments_li)[:,j,:]
+
+  # Get alignments for first sample
+  for layer in range(decoder_layers):
+    alignments_li[layer,j,:] = np.array(_alignments_li[layer][0])[j,:]
+
   stop_predictions.append(_stop_predictions[:,j,:][0])
+
   if both:
-    predicted_mag[:,j,:] = _mag_output[:,j,:]
-    input_spec = np.concatenate((predicted_mel, predicted_mag), axis=2)
+    predicted_mag = _mag_output
   else:
     input_spec = predicted_mel
 
   # if stop_predictions[j] > 0.95 and stop_predicted == False:
   #   stop_timestep = j * reduction_factor
   #   stop_predicted = True
+  #   break
 
 # Plot alignments and save audio
-predicted_mel = predicted_mel[0]
-predicted_mag = predicted_mag[0]
 
 if reduction_factor != 1:
-  predicted_mel = np.reshape(predicted_mel, (-1, num_audio_features))
+  predicted_mel = predicted_mel[0]
+  predicted_mel = np.reshape(predicted_mel, (-1, mel_feats))
+  predicted_mel = predicted_mel[:stop_timestep, :]
+  predicted_mel = model_T2S.get_data_layer().get_magnitude_spec(predicted_mel, is_mel=True)
 
-predicted_mel = predicted_mel[:stop_timestep, :]
-
-
-if both:
-  predicted_mag = model_T2S.get_data_layer().get_magnitude_spec(predicted_mag)
   wav_summary = save_audio(
-      predicted_mag,
+      predicted_mel,
       ".",
       1,
       n_fft=n_fft,
       sampling_rate=sampling_rate,
-      mode="mag",
-      save_format="disk",
+      save_format="disk"
   )
 
-predicted_mel = model_T2S.get_data_layer().get_magnitude_spec(predicted_mel, is_mel=True)
-wav_summary = save_audio(
-    predicted_mel,
-    ".",
-    1,
-    n_fft=n_fft,
-    sampling_rate=sampling_rate,
-    save_format="disk"
-)
+  if both:
+    predicted_mag = predicted_mag[0]
+    predicted_mag = np.reshape(predicted_mag, (-1, mag_feats))
+    predicted_mag = predicted_mag[:stop_timestep, :]
+    predicted_mag = model_T2S.get_data_layer().get_magnitude_spec(predicted_mag)
+
+    wav_summary = save_audio(
+        predicted_mag,
+        ".",
+        1,
+        n_fft=n_fft,
+        sampling_rate=sampling_rate,
+        mode="mag",
+        save_format="disk",
+    )
 
 plots = [
   predicted_mel,
-  alignments_li[0][:Ty//reduction_factor,:],
-  alignments_li[1][:Ty//reduction_factor,:],
-  alignments_li[2][:Ty//reduction_factor,:],
-  alignments_li[3][:Ty//reduction_factor,:]
 ]
+
+for layer in range(decoder_layers):
+  plots.append(alignments_li[layer][:Ty//reduction_factor,:])
 
 titles = [
     "predicted output",
