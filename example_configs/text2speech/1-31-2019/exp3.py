@@ -82,7 +82,7 @@ base_params = {
   },
   "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
-  "batch_size_per_gpu": 512,
+  "batch_size_per_gpu": 64,
   "max_steps": 200000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
