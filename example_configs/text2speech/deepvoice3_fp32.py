@@ -6,10 +6,12 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
+# exp 17 hparams from original set of tests
+
 base_model = DeepVoice
 dataset = "LJ"
 dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
-output_type = "mel"
+output_type = "both"
 
 if dataset == "MAILABS":
   trim = True
@@ -53,12 +55,11 @@ encoder_channels == c
 reduction_factor == r
 '''
 reduction_factor = 4
-keep_prob = 0.95
+keep_prob = 0.90
 base_params = {
   "use_horovod": False,
   "num_gpus": 1,
-  # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/will_it_run4",
+  "logdir": "/home/rnie/Desktop/rnie/new/OpenSeq2Seq/bn_test_2",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
   "print_samples_steps": 100,
@@ -69,18 +70,23 @@ base_params = {
     'scale': 1e-6
   },
   "optimizer": "Adam",
-  "optimizer_params": {
-  },
-  "lr_policy": fixed_lr,
+  "optimizer_params": {},
+  "lr_policy": exp_decay,
   "lr_policy_params": {
-    "learning_rate": 0.0001
+    "learning_rate": 1e-3,
+    "decay_steps": 10000,
+    "decay_rate": 0.1,
+    "use_staircase_decay": False,
+    "begin_decay_at": 20000,
+    "min_lr": 1e-5,
   },
-  "summaries": ["learning_rate", "gradients", "gradient_norm", "global_gradient_norm"],  
-  "batch_size_per_gpu": 16,
+  "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
+                'variable_norm', 'gradient_norm', 'global_gradient_norm'],
+  "batch_size_per_gpu": 128,
   "max_steps": 200000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
-  "reduction_factor": reduction_factor,
+  "weight_norm": False,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
@@ -110,7 +116,7 @@ base_params = {
   "encoder": DeepVoiceEncoder,
   "encoder_params": {
       "speaker_emb": None,
-      "emb_size": 256,
+      "emb_size": 128,
       "channels": 64,
       "conv_layers": 7,
       "keep_prob": keep_prob, 
@@ -120,13 +126,17 @@ base_params = {
   "decoder": DeepVoiceDecoder,
   "decoder_params": {
       "speaker_emb": None,
-      "emb_size": 256,
+      "emb_size": 128,
       "attention_size": 128,
-      "prenet_layers": [128, 256],
-      "channels": 256,
+      "prenet_layers": [128, 128, 128, 128],
+      "channels": 128,
       "decoder_layers": 4,
       "kernel_size": 5,
       "keep_prob": keep_prob,
+      "pos_rate":1.38,
+      "converter_layers": 5,
+      "converter_kernel_size": 5,
+      "converter_channels": 256
   },
   # Loss params
   "loss": DeepVoiceLoss,

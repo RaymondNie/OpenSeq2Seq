@@ -75,28 +75,48 @@ def attention_block(queries,
           normalization_type="weight_norm",
           regularizer=regularizer
       )
+      queries = query_fc(queries)
+      keys = key_fc(keys)
     else:
-      query_fc = tf.layers.Dense(
-          name="query_fc",
-          units=attn_size,
-          use_bias=True
+      W_q = tf.get_variable(
+          name="query_weights",
+          shape=[q_in_dim, attn_size],
+          initializer=tf.contrib.layers.variance_scaling_initializer(
+              factor=keep_prob
+          ),
+          regularizer=regularizer
       )
-      key_fc = tf.layers.Dense(
-          name="key_fc",
-          units=attn_size,
-          use_bias=True
+
+      b_q = tf.get_variable(
+          name="query_bias",
+          shape=[attn_size],
+          initializer=tf.zeros_initializer
       )
+
+      W_k = tf.get_variable(
+          name="key_weights",
+          initializer=W_q
+      )
+
+      b_k = tf.get_variable(
+          name="key_bias",
+          shape=[attn_size],
+          initializer=tf.zeros_initializer
+      )
+
+      queries = tf.matmul(tf.reshape(queries, (-1, q_in_dim)), W_q) + b_q
+      queries = tf.reshape(queries, (_, Ty, attn_size))
+      keys = tf.matmul(tf.reshape(keys, (-1, k_in_dim)), W_k) + b_k
+      keys = tf.reshape(keys, (_, Tx, attn_size))
+
       val_fc = tf.layers.Dense(
           name="val_fc",
           units=attn_size,
           use_bias=True
       )
-      vars_to_regularize += query_fc.trainable_variables
-      vars_to_regularize += key_fc.trainable_variables
+
       vars_to_regularize += val_fc.trainable_variables
 
-    queries = query_fc(queries)
-    keys = key_fc(keys)
     vals = val_fc(vals)
 
     with tf.variable_scope("alignments"):
