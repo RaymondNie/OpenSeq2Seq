@@ -8,6 +8,7 @@ import librosa
 import numpy as np
 import tensorflow as tf
 import pandas as pd
+import nltk
 
 from six import string_types
 from random import random
@@ -52,6 +53,7 @@ class Text2SpeechDataLayer(DataLayer):
             "exp_mag": bool,
             'reduction_factor': None,
             'mixed_phoneme_char_prob': float,
+            'arpabet_vocab_file': str,
             'deepvoice': bool,
             'decoder_layers': int
         }
@@ -114,13 +116,9 @@ class Text2SpeechDataLayer(DataLayer):
         worker_id
     )
 
-    if self.params.get('mixed_phoneme_char_prob', 0) != 0:
-      # If data supports a phoneme transcript (For DeepVoice3)
-      names = ['wav_filename', 'raw_transcript', 'transcript', 'phoneme_transcript']
-      min_idx = 5
-    else:
-      names = ['wav_filename', 'raw_transcript', 'transcript']
-      min_idx = 3
+
+    names = ['wav_filename', 'raw_transcript', 'transcript']
+    min_idx = 3
     sep = '\x7c'
     header = None
 
@@ -140,9 +138,16 @@ class Text2SpeechDataLayer(DataLayer):
         read_chars=True,
     )
 
-    if self.params.get('mixed_phoneme_char_prob', 0) != 0:
-      self.params['char2idx']['%'] = 3
-      self.params['char2idx']['/'] = 4
+    if self.params.get('mixed_phoneme_char_prob', 0) != 0 and \
+       self.params.get('arpabet_vocab_file', None) != None:
+      # Add arpabet to our mapping
+      self.params['char2idx'] = load_pre_existing_vocabulary(
+          path=self.params['arpabet_vocab_file'],
+          min_idx=len(self.params['char2idx']),
+          read_chars=False,
+          vocab_dict=self.params['char2idx']
+      )
+      self._arpabet = nltk.corpus.cmudict.dict()
 
     # Add the pad, start, and end chars
     self.params['char2idx']['<p>'] = 0
@@ -242,10 +247,7 @@ class Text2SpeechDataLayer(DataLayer):
         self._files = self._files.append(files)
 
     if self.params['mode'] != 'infer':
-      if self.params.get('mixed_phoneme_char_prob', 0) != 0:
-        cols = ['wav_filename', 'transcript', 'phoneme_transcript']
-      else:
-        cols = ['wav_filename', 'transcript']
+      cols = ['wav_filename', 'transcript']
     else:
       cols = 'transcript'
 
@@ -428,26 +430,29 @@ class Text2SpeechDataLayer(DataLayer):
       length of target sequence.
 
     """
-    if self.params.get('mixed_phoneme_char_prob', 0) != 0:
-      audio_filename, transcript, phoneme_transcript = element
-      # Send phoneme embedding with some fixed probability
-      if random() < self.params.get('mixed_phoneme_char_prob', 0):
-        transcript = phoneme_transcript
-      else:
-        transcript = transcript
-    else:
-      audio_filename, transcript = element
-
+    audio_filename, transcript = element
     transcript = transcript.lower()
+    print(transcript)
     if six.PY2:
       audio_filename = unicode(audio_filename, "utf-8")
       transcript = unicode(transcript, "utf-8")
     elif not isinstance(transcript, string_types):
       audio_filename = str(audio_filename, "utf-8")
       transcript = str(transcript, "utf-8")
-    text_input = np.array(
-        [self.params['char2idx'][c] for c in transcript]
-    )
+
+    # Send phoneme embedding with some fixed probability
+    if self.params.get('mixed_phoneme_char_prob', 0) != 0 and \
+       self.params.get('arpabet_vocab_file', None) != None:
+      text_input = []
+      for word in transcript.split(" "):
+        text_input += self._maybe_get_arpabet_ids(word)
+        text_input += [self.params['char2idx'][" "]]
+      text_input = np.array(text_input[:-1])
+    else:
+      text_input = np.array(
+          [self.params['char2idx'][c] for c in transcript]
+      )
+
     pad_to = self.params.get('pad_to', 8)
     if self.params.get("pad_EOS", True):
       num_pad = pad_to - ((len(text_input) + 2) % pad_to)
@@ -544,8 +549,6 @@ class Text2SpeechDataLayer(DataLayer):
     else:
       stop_token_target[-1] = 1.
 
-    np.save("test", spectrogram.astype(self.params['dtype'].as_numpy_dtype()))
-
     assert len(text_input) % pad_to == 0
     assert len(spectrogram) % pad_to == 0
     return np.int32(text_input), \
@@ -569,7 +572,6 @@ class Text2SpeechDataLayer(DataLayer):
     elif not isinstance(transcript, string_types):
       transcript = str(transcript, "utf-8")
     transcript = transcript.lower()
-
     text_input = np.array(
         [self.params['char2idx'].get(c,3) for c in transcript]
     )
@@ -792,3 +794,12 @@ class Text2SpeechDataLayer(DataLayer):
         mean=self.params.get("feature_normalize_mean", 0.),
         std=self.params.get("feature_normalize_std", 1.)
     )
+
+  def _maybe_get_arpabet_ids(self, word):
+    text_ids = [self.params['char2idx'][c] for c in word]
+    try:
+      phonemes = ['@{}'.format(phoneme) for phoneme in self._arpabet[word][0]]
+      phoneme_ids = [self.params['char2idx'][phoneme] for phoneme in phonemes]
+    except KeyError:
+      return text_ids
+    return phoneme_ids if random() < self.params['mixed_phoneme_char_prob'] else text_ids
