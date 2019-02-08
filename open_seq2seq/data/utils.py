@@ -25,7 +25,7 @@ def pad_vocab_to_eight(vocab):
   return vocab
 
 
-def load_pre_existing_vocabulary(path, min_idx=0, read_chars=False):
+def load_pre_existing_vocabulary(path, min_idx=0, read_chars=False, vocab_dict=None):
   """Loads pre-existing vocabulary into memory.
 
   The vocabulary file should contain a token on each line with optional
@@ -47,8 +47,10 @@ def load_pre_existing_vocabulary(path, min_idx=0, read_chars=False):
   Returns:
      dict: vocabulary dictionary mapping tokens (chars/words) to int ids.
   """
+  if vocab_dict == None:
+    vocab_dict = {}
+    
   idx = min_idx
-  vocab_dict = {}
   with io.open(path, newline='', encoding='utf-8') as f:
     for line in f:
       # ignoring empty lines
@@ -61,3 +63,4 @@ def load_pre_existing_vocabulary(path, min_idx=0, read_chars=False):
       vocab_dict[token] = idx
       idx += 1
   return vocab_dict
+

@@ -431,7 +431,7 @@ class DeepVoiceDecoder(Decoder):
               bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
               bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
           )
-
+      
         if self._model.get_data_layer()._exp_mag:
           mag_spec_prediction = tf.exp(mag_spec_prediction)
 

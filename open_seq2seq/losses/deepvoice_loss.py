@@ -172,6 +172,11 @@ class DeepVoiceLoss(Loss):
 
     loss = decoder_loss + stop_token_loss + attn_loss
 
+    tf.summary.scalar(name="stop_token_loss", tensor=stop_token_loss)
+    tf.summary.scalar(name="attn_loss", tensor=attn_loss)
+    tf.summary.scalar(name="mag_loss", tensor=mag_loss)
+    tf.summary.scalar(name="mel_loss", tensor=decoder_loss)
+
     if self._both:
       loss += mag_loss
 

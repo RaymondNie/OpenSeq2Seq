@@ -59,7 +59,7 @@ keep_prob = 0.90
 base_params = {
   "use_horovod": False,
   "num_gpus": 1,
-  "logdir": "/home/rnie/Desktop/rnie/new/OpenSeq2Seq/bn_test_2",
+  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test2",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
   "print_samples_steps": 100,
@@ -73,7 +73,7 @@ base_params = {
   "optimizer_params": {},
   "lr_policy": exp_decay,
   "lr_policy_params": {
-    "learning_rate": 1e-3,
+    "learning_rate": 5e-4,
     "decay_steps": 10000,
     "decay_rate": 0.1,
     "use_staircase_decay": False,
@@ -82,7 +82,7 @@ base_params = {
   },
   "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
-  "batch_size_per_gpu": 128,
+  "batch_size_per_gpu": 16,
   "max_steps": 200000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
@@ -109,7 +109,8 @@ base_params = {
     "duration_min":24,
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
-    "mixed_phoneme_char_prob": 0.,
+    "mixed_phoneme_char_prob": 0.5,
+    "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt",
     "deepvoice": True
   },
   # Encoder params
@@ -135,12 +136,12 @@ base_params = {
       "keep_prob": keep_prob,
       "pos_rate":1.38,
       "converter_layers": 5,
-      "converter_kernel_size": 5,
-      "converter_channels": 256
+      "converter_kernel_size": 3,
+      "converter_channels": 512
   },
   # Loss params
   "loss": DeepVoiceLoss,
   "loss_params": {
-    "l1_loss": False
+    "l1_loss": True
   }
 }
