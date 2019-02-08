@@ -432,7 +432,6 @@ class Text2SpeechDataLayer(DataLayer):
     """
     audio_filename, transcript = element
     transcript = transcript.lower()
-    print(transcript)
     if six.PY2:
       audio_filename = unicode(audio_filename, "utf-8")
       transcript = unicode(transcript, "utf-8")
