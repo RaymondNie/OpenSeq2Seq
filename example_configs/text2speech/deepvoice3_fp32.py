@@ -10,7 +10,8 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 
 base_model = DeepVoice
 dataset = "LJ"
-dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
+# dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
+dataset_location = "/data/LJSpeech"
 output_type = "both"
 
 if dataset == "MAILABS":
@@ -55,11 +56,12 @@ encoder_channels == c
 reduction_factor == r
 '''
 reduction_factor = 4
-keep_prob = 0.90
+keep_prob = 0.95
 base_params = {
-  "use_horovod": False,
-  "num_gpus": 1,
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test2",
+  "use_horovod": True,
+  # "num_gpus": 1,
+  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test2",
+  "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
   "print_samples_steps": 100,
@@ -82,13 +84,14 @@ base_params = {
   },
   "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
-  "batch_size_per_gpu": 16,
-  "max_steps": 200000,
+  "batch_size_per_gpu": 64,
+  "max_steps": 1000000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
   "weight_norm": False,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
+    "shuffle": True,
     "dataset_files": [
       os.path.join(dataset_location, "train.csv"),
     ],
@@ -111,7 +114,8 @@ base_params = {
     "reduction_factor": reduction_factor,
     "mixed_phoneme_char_prob": 0.5,
     "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt",
-    "deepvoice": True
+    "deepvoice": True,
+    "preprocessed_numpy": True
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
@@ -131,7 +135,7 @@ base_params = {
       "attention_size": 128,
       "prenet_layers": [128, 128, 128, 128],
       "channels": 128,
-      "decoder_layers": 4,
+      "decoder_layers": 2,
       "kernel_size": 5,
       "keep_prob": keep_prob,
       "pos_rate":1.38,

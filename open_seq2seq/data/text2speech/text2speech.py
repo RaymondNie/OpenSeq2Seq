@@ -55,7 +55,8 @@ class Text2SpeechDataLayer(DataLayer):
             'mixed_phoneme_char_prob': float,
             'arpabet_vocab_file': str,
             'deepvoice': bool,
-            'decoder_layers': int
+            'decoder_layers': int,
+            'preprocessed_numpy': bool
         }
     )
 
@@ -432,7 +433,6 @@ class Text2SpeechDataLayer(DataLayer):
     """
     audio_filename, transcript = element
     transcript = transcript.lower()
-    print(transcript)
     if six.PY2:
       audio_filename = unicode(audio_filename, "utf-8")
       transcript = unicode(transcript, "utf-8")
@@ -480,25 +480,32 @@ class Text2SpeechDataLayer(DataLayer):
     else:
       features_type = self.params['output_type']
 
-    spectrogram = get_speech_features_from_file(
-        file_path,
-        self.params['num_audio_features'],
-        features_type=features_type,
-        n_fft=self._n_fft,
-        hop_length=600,
-        mag_power=self.params.get('mag_power', 2),
-        feature_normalize=self.params["feature_normalize"],
-        mean=self.params.get("feature_normalize_mean", 0.),
-        std=self.params.get("feature_normalize_std", 1.),
-        trim=self.params.get("trim", False),
-        data_min=self.params.get("data_min", 1e-5),
-        mel_basis=self._mel_basis
-    )
-
-    if self._both:
-      mel_spectrogram, spectrogram = spectrogram
+    if self.params['preprocessed_numpy'] == False:
+      spectrogram = get_speech_features_from_file(
+          file_path,
+          self.params['num_audio_features'],
+          features_type=features_type,
+          n_fft=self._n_fft,
+          hop_length=600,
+          mag_power=self.params.get('mag_power', 2),
+          feature_normalize=self.params["feature_normalize"],
+          mean=self.params.get("feature_normalize_mean", 0.),
+          std=self.params.get("feature_normalize_std", 1.),
+          trim=self.params.get("trim", False),
+          data_min=self.params.get("data_min", 1e-5),
+          mel_basis=self._mel_basis
+      )
+      if self._both:
+        mel_spectrogram, spectrogram = spectrogram
       if self._exp_mag:
         spectrogram = np.exp(spectrogram)
+
+    else:
+      if self._both:
+        mel_spectrogram = np.load(os.path.join(self.params['dataset_location'], "npy", audio_filename + "_mel.npy"))
+        spectrogram = np.load(os.path.join(self.params['dataset_location'], "npy", audio_filename + "_mag.npy"))
+      else:
+        spectrogram = np.load(os.path.join(self.params['dataset_location'], "npy", audio_filename + "_mel.npy"))
 
     stop_token_target = np.zeros(
         [len(spectrogram)], dtype=self.params['dtype'].as_numpy_dtype()
