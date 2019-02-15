@@ -118,6 +118,7 @@ class Text2SpeechDataLayer(DataLayer):
     )
 
 
+
     names = ['wav_filename', 'raw_transcript', 'transcript']
     min_idx = 3
     sep = '\x7c'
@@ -138,6 +139,11 @@ class Text2SpeechDataLayer(DataLayer):
         min_idx=min_idx,
         read_chars=True,
     )
+
+    if self.params.get('reduction_factor', None) != None:
+      self.reduction_factor = self.params['reduction_factor']
+    else:
+      self.reduction_factor = 1
 
     if self.params.get('mixed_phoneme_char_prob', 0) != 0 and \
        self.params.get('arpabet_vocab_file', None) != None:
@@ -373,7 +379,7 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors = {}
     self._input_tensors["source_tensors"] = [text, text_length]
 
-    if self.params.get('reduction_factor', None) != None:
+    if self.reduction_factor != 1:
       self.reduction_factor = self.params['reduction_factor']
       if self._both:
         # Reduce the mag and mel seperately
@@ -410,7 +416,7 @@ class Text2SpeechDataLayer(DataLayer):
       stop_token_target = stop_token_target[:, ::self.reduction_factor]
 
     if self.params['mode'] != 'infer':
-      if self._both and self.reduction_factor != None:
+      if self._both and self.reduction_factor != 1:
         self._input_tensors['target_tensors'] = [
             mel_spec, stop_token_target, spec_length, mag_spec
         ]
@@ -619,10 +625,7 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors["source_tensors"] = [self._text, self._text_length]
 
     if self.params['mode'] == 'infer' and self.params['deepvoice']:
-      if self.params.get('reduction_factor', None) != None:
-        self.reduction_factor = self.params['reduction_factor']
-      else:
-        self.reduction_factor = 1
+
 
       if "both" in self.params['output_type']:
         num_audio_features = self.params["num_audio_features"]["mel"]

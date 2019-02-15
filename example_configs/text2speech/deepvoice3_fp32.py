@@ -10,14 +10,14 @@ from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, ex
 
 base_model = DeepVoice
 dataset = "LJ"
-# dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech_mixed"
-dataset_location = "/data/LJSpeech"
+dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech-1.1"
+# dataset_location = "/data/LJSpeech"
 output_type = "both"
 
 if dataset == "MAILABS":
   trim = True
   mag_num_feats = 401
-  train = "train.csv"
+  train = "metadata.csv"
   val = "val.csv"
   batch_size = 32
 elif dataset == "LJ":
@@ -55,13 +55,13 @@ emb_size == e
 encoder_channels == c
 reduction_factor == r
 '''
-reduction_factor = 4
+reduction_factor = None
 keep_prob = 0.95
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
-  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/test2",
-  "logdir": "/results/deepvoice3_fp32",
+  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/dilated_conv",
+  # "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
   "print_samples_steps": 100,
@@ -75,16 +75,16 @@ base_params = {
   "optimizer_params": {},
   "lr_policy": exp_decay,
   "lr_policy_params": {
-    "learning_rate": 5e-4,
+    "learning_rate": 1e-3,
     "decay_steps": 10000,
     "decay_rate": 0.1,
     "use_staircase_decay": False,
     "begin_decay_at": 20000,
     "min_lr": 1e-5,
-  },
+  }, 
   "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
-  "batch_size_per_gpu": 64,
+  "batch_size_per_gpu": 16,
   "max_steps": 1000000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
@@ -93,7 +93,7 @@ base_params = {
   "data_layer_params": {
     "shuffle": True,
     "dataset_files": [
-      os.path.join(dataset_location, "train.csv"),
+      os.path.join(dataset_location, "metadata.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
@@ -115,7 +115,7 @@ base_params = {
     "mixed_phoneme_char_prob": 0.5,
     "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt",
     "deepvoice": True,
-    "preprocessed_numpy": True
+    "preprocessed_numpy": False
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
@@ -138,14 +138,14 @@ base_params = {
       "decoder_layers": 2,
       "kernel_size": 5,
       "keep_prob": keep_prob,
-      "pos_rate":1.38,
-      "converter_layers": 5,
+      "pos_rate":7.4,
+      "converter_layers": 4,
       "converter_kernel_size": 3,
       "converter_channels": 512
   },
   # Loss params
   "loss": DeepVoiceLoss,
   "loss_params": {
-    "l1_loss": True
+    "l1_loss": False
   }
 }

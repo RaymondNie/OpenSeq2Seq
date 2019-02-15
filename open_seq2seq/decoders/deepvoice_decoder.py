@@ -78,36 +78,18 @@ def attention_block(queries,
       queries = query_fc(queries)
       keys = key_fc(keys)
     else:
-      W_q = tf.get_variable(
-          name="query_weights",
-          shape=[q_in_dim, attn_size],
-          initializer=tf.contrib.layers.variance_scaling_initializer(
-              factor=keep_prob
-          ),
-          regularizer=regularizer
+
+      query_fc = tf.layers.Dense(
+          name="query_fc",
+          units=attn_size,
+          use_bias=True
       )
 
-      b_q = tf.get_variable(
-          name="query_bias",
-          shape=[attn_size],
-          initializer=tf.zeros_initializer
+      key_fc = tf.layers.Dense(
+          name="key_fc",
+          units=attn_size,
+          use_bias=True
       )
-
-      W_k = tf.get_variable(
-          name="key_weights",
-          initializer=W_q
-      )
-
-      b_k = tf.get_variable(
-          name="key_bias",
-          shape=[attn_size],
-          initializer=tf.zeros_initializer
-      )
-
-      queries = tf.matmul(tf.reshape(queries, (-1, q_in_dim)), W_q) + b_q
-      queries = tf.reshape(queries, (_, Ty, attn_size))
-      keys = tf.matmul(tf.reshape(keys, (-1, k_in_dim)), W_k) + b_k
-      keys = tf.reshape(keys, (_, Tx, attn_size))
 
       val_fc = tf.layers.Dense(
           name="val_fc",
@@ -116,8 +98,12 @@ def attention_block(queries,
       )
 
       vars_to_regularize += val_fc.trainable_variables
+      vars_to_regularize += key_fc.trainable_variables
+      vars_to_regularize += query_fc.trainable_variables
 
     vals = val_fc(vals)
+    queries = query_fc(queries)
+    keys = key_fc(keys)
 
     with tf.variable_scope("alignments"):
       attention_weights = tf.matmul(queries, keys, transpose_b=True)  # (N, Ty/r, Tx)
@@ -203,7 +189,10 @@ class DeepVoiceDecoder(Decoder):
 
   def __init__(self, params, model, name='deepvoice_3_decoder', mode='train'):
     super(DeepVoiceDecoder, self).__init__(params, model, name, mode)
-    self.reduction_factor = model.get_data_layer().params['reduction_factor']
+    if model.get_data_layer().params.get('reduction_factor', None) != None:
+      self.reduction_factor = model.get_data_layer().params['reduction_factor']
+    else:
+      self.reduction_factor = 1
     self.weight_norm = model.params['weight_norm']
     self.both = "both" in model.get_data_layer().params['output_type']
     if self.both:
@@ -245,8 +234,8 @@ class DeepVoiceDecoder(Decoder):
       # [B, Ty, n]
       mel_inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['mel_target']
-      mel_inputs = tf.pad(mel_inputs, [[0,0],[1,0],[0,0]])
-      mel_inputs = mel_inputs[:,:-1,:]
+      # mel_inputs = tf.pad(mel_inputs, [[0,0],[1,0],[0,0]])
+      # mel_inputs = mel_inputs[:,:-1,:]
       # [B]
       spec_lens = input_dict['target_tensors'][2] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['spec_lens']
@@ -435,13 +424,30 @@ class DeepVoiceDecoder(Decoder):
         if self._model.get_data_layer()._exp_mag:
           mag_spec_prediction = tf.exp(mag_spec_prediction)
 
+
+        # dilated conv1d
+        mag_spec_prediction = conv_bn_actv(
+            layer_type="conv1d",
+            name="converter_conv_dilated",
+            inputs=mag_spec_prediction,
+            filters=self.params['converter_channels'],
+            kernel_size=self.params['converter_kernel_size'],
+            activation_fn=None,
+            strides=1,
+            padding="SAME",
+            regularizer=regularizer,
+            training=training,
+            data_format=self.params.get('postnet_data_format', 'channels_last'),
+            bn_momentum=self.params.get('postnet_bn_momentum', 0.1),
+            bn_epsilon=self.params.get('postnet_bn_epsilon', 1e-5),
+            dilation=3
+        )
         mag_spec_prediction = tf.layers.conv1d(
             mag_spec_prediction,
-            self.mag_feats * self.reduction_factor,
+            self.mag_feats,
             1,
-            name="converter_post_net_proj",
+            name="post_net_proj",
             use_bias=False,
-            kernel_regularizer=regularizer
         )
     else:
       mag_spec_prediction = tf.zeros([1])
