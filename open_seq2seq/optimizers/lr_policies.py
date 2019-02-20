@@ -153,3 +153,13 @@ def transformer_policy(global_step, learning_rate, d_model, warmup_steps,
   if max_lr is not None:
     return tf.minimum(max_lr, new_lr)
   return new_lr
+
+def noam_learning_rate_decay(global_step, init_lr, warmup_steps=4000, dtype=tf.float32):
+     # Noam scheme from tensor2tensor:
+    warmup_steps = tf.cast(warmup_steps, dtype=dtype)
+    global_step = tf.cast(global_step, dtype=dtype)
+    step = global_step + 1.
+    lr = init_lr * warmup_steps**0.5 * tf.minimum(
+        step * warmup_steps**-1.5, step**-0.5)
+    return lr
+

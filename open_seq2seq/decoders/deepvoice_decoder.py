@@ -127,7 +127,7 @@ def attention_block(queries,
 
     with tf.variable_scope("context"):
       ctx = tf.nn.dropout(alignments, keep_prob)
-      ctx = tf.matmul(ctx, vals) * tf.rsqrt(tf.to_float(Tx))# (N, Ty/r, a)
+      ctx = tf.matmul(ctx, vals) * tf.rsqrt(tf.to_float(Ty))# (N, Ty/r, a)
 
     # Restore shape for residual connection
     if weight_norm:
@@ -261,7 +261,7 @@ class DeepVoiceDecoder(Decoder):
     max_key_len = tf.shape(key)[1]
     max_query_len = tf.shape(mel_inputs)[1]
 
-    position_rate = self.params['pos_rate'] # Initial rate for single speaker?
+    position_rate = self.params['pos_rate'] / self.reduction_factor # Initial rate for single speaker?
 
     key_pe = get_position_encoding(
         length=max_key_len, 
@@ -379,23 +379,12 @@ class DeepVoiceDecoder(Decoder):
         kernel_regularizer=regularizer
     )
 
-    if self.weight_norm:
-      stop_token_fc = ffn_wn_layer.FeedFowardNetworkNormalized(
-        in_dim=self.mel_feats * self.reduction_factor,
-        out_dim=1,
-        dropout=self.params['keep_prob'],
-        var_scope_name="stop_token_proj",
-        mode=self._mode,
-        normalization_type="weight_norm",
-        regularizer=regularizer
-      )
-    else:
-      stop_token_fc = tf.layers.Dense(
-          name="stop_token_fc",
-          units=1,
-          use_bias=True
-      )
-      vars_to_regularize += stop_token_fc.trainable_variables
+    stop_token_fc = tf.layers.Dense(
+        name="stop_token_fc",
+        units=1,
+        use_bias=True
+    )
+    vars_to_regularize += stop_token_fc.trainable_variables
 
     stop_token_logits = stop_token_fc(decoder_output)
     stop_token_predictions = tf.nn.sigmoid(stop_token_logits)
@@ -444,7 +433,7 @@ class DeepVoiceDecoder(Decoder):
         )
         mag_spec_prediction = tf.layers.conv1d(
             mag_spec_prediction,
-            self.mag_feats,
+            self.mag_feats * self.reduction_factor,
             1,
             name="post_net_proj",
             use_bias=False,

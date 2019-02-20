@@ -123,7 +123,7 @@ class Text2SpeechDataLayer(DataLayer):
     min_idx = 3
     sep = '\x7c'
     header = None
-
+    self.spec_dict = {}
     if self.params["dataset"] == "LJ":
       self._sampling_rate = 22050
       self._n_fft = 1024
@@ -380,7 +380,6 @@ class Text2SpeechDataLayer(DataLayer):
     self._input_tensors["source_tensors"] = [text, text_length]
 
     if self.reduction_factor != 1:
-      self.reduction_factor = self.params['reduction_factor']
       if self._both:
         # Reduce the mag and mel seperately
         mel_feats = self.params['num_audio_features']['mel']
@@ -416,7 +415,7 @@ class Text2SpeechDataLayer(DataLayer):
       stop_token_target = stop_token_target[:, ::self.reduction_factor]
 
     if self.params['mode'] != 'infer':
-      if self._both and self.reduction_factor != 1:
+      if self.params['deepvoice'] == True:
         self._input_tensors['target_tensors'] = [
             mel_spec, stop_token_target, spec_length, mag_spec
         ]
@@ -487,25 +486,28 @@ class Text2SpeechDataLayer(DataLayer):
       features_type = self.params['output_type']
 
     if self.params['preprocessed_numpy'] == False:
-      spectrogram = get_speech_features_from_file(
-          file_path,
-          self.params['num_audio_features'],
-          features_type=features_type,
-          n_fft=self._n_fft,
-          hop_length=600,
-          mag_power=self.params.get('mag_power', 2),
-          feature_normalize=self.params["feature_normalize"],
-          mean=self.params.get("feature_normalize_mean", 0.),
-          std=self.params.get("feature_normalize_std", 1.),
-          trim=self.params.get("trim", False),
-          data_min=self.params.get("data_min", 1e-5),
-          mel_basis=self._mel_basis
-      )
+      if audio_filename in self.spec_dict:
+        spectrogram = self.spec_dict[audio_filename]
+      else:
+        spectrogram = get_speech_features_from_file(
+            file_path,
+            self.params['num_audio_features'],
+            features_type=features_type,
+            n_fft=self._n_fft,
+            hop_length=600,
+            mag_power=self.params.get('mag_power', 2),
+            feature_normalize=self.params["feature_normalize"],
+            mean=self.params.get("feature_normalize_mean", 0.),
+            std=self.params.get("feature_normalize_std", 1.),
+            trim=self.params.get("trim", False),
+            data_min=self.params.get("data_min", 1e-5),
+            mel_basis=self._mel_basis
+        )
+        self.spec_dict[audio_filename] = spectrogram
       if self._both:
         mel_spectrogram, spectrogram = spectrogram
-      if self._exp_mag:
-        spectrogram = np.exp(spectrogram)
-
+        if self._exp_mag:
+          spectrogram = np.exp(spectrogram)
     else:
       if self._both:
         mel_spectrogram = np.load(os.path.join(self.params['dataset_location'], "npy", audio_filename + "_mel.npy"))
@@ -628,17 +630,17 @@ class Text2SpeechDataLayer(DataLayer):
 
 
       if "both" in self.params['output_type']:
-        num_audio_features = self.params["num_audio_features"]["mel"]
-        num_audio_features += self.params['num_audio_features']['magnitude']
+        mel_feats = self.params["num_audio_features"]["mel"]
+        mag_feats = self.params['num_audio_features']['magnitude']
       else:
-        num_audio_features = self.params["num_audio_features"]
+        mel_feats = self.params["num_audio_features"]
 
       self._spec = tf.placeholder(
           dtype=tf.float32,
           shape=[
               self.params["batch_size"],
               None,
-              num_audio_features * self.reduction_factor
+              mel_feats * self.reduction_factor
           ]
       )
       self._spec_lens = tf.placeholder(

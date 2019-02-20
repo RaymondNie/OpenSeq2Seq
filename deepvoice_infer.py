@@ -13,7 +13,7 @@ from open_seq2seq.models.text2speech import plot_spectrograms, save_audio
 args = [
         "--config_file=example_configs/text2speech/deepvoice3_infer.py",
         "--mode=interactive_infer",
-        "--logdir=bn_batch512/exp6/logs/",
+        "--logdir=fszf/logs/",
 ]
 
 # A simpler version of what run.py does. It returns the created model and its 

@@ -4,14 +4,14 @@ from open_seq2seq.decoders import DeepVoiceDecoder
 from open_seq2seq.models import DeepVoice
 from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
-from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
+from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay, noam_learning_rate_decay
 
 # exp 17 hparams from original set of tests
 
 base_model = DeepVoice
 dataset = "LJ"
-dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech-1.1"
-# dataset_location = "/data/LJSpeech"
+# dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech"
+dataset_location = "/data/LJSpeech"
 output_type = "both"
 
 if dataset == "MAILABS":
@@ -55,13 +55,13 @@ emb_size == e
 encoder_channels == c
 reduction_factor == r
 '''
-reduction_factor = None
+reduction_factor = 4
 keep_prob = 0.95
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/dilated_conv",
-  # "logdir": "/results/deepvoice3_fp32",
+  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/wn3",
+  "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
   "print_samples_steps": 100,
@@ -73,14 +73,9 @@ base_params = {
   },
   "optimizer": "Adam",
   "optimizer_params": {},
-  "lr_policy": exp_decay,
+  "lr_policy": noam_learning_rate_decay,
   "lr_policy_params": {
-    "learning_rate": 1e-3,
-    "decay_steps": 10000,
-    "decay_rate": 0.1,
-    "use_staircase_decay": False,
-    "begin_decay_at": 20000,
-    "min_lr": 1e-5,
+    "init_lr": 5e-4,    
   }, 
   "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
                 'variable_norm', 'gradient_norm', 'global_gradient_norm'],
@@ -88,7 +83,7 @@ base_params = {
   "max_steps": 1000000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
-  "weight_norm": False,
+  "weight_norm": True,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "shuffle": True,
@@ -146,6 +141,7 @@ base_params = {
   # Loss params
   "loss": DeepVoiceLoss,
   "loss_params": {
-    "l1_loss": False
+    "l1_loss": True,
+    "masked_loss_weight": 0.5
   }
 }

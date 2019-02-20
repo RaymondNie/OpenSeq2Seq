@@ -267,7 +267,7 @@ class Text2Speech(EncoderDecoderModel):
     else:
       save_format = "disk"
     if "both" in self.get_data_layer().params['output_type']:
-      predicted_mag_spec = output_values[5][0][:audio_length - 1, :]
+      predicted_mag_spec = output_values[5][0][:audio_length - 2, :]
       if self.get_data_layer()._exp_mag is False:
         predicted_mag_spec = np.exp(predicted_mag_spec)
       predicted_mag_spec =self.get_data_layer().get_magnitude_spec(predicted_mag_spec)
@@ -281,7 +281,7 @@ class Text2Speech(EncoderDecoderModel):
           save_format=save_format,
       )
       dict_to_log['audio_mag'] = wav_summary
-    predicted_final_spec = predicted_final_spec[:audio_length - 1, :]
+    predicted_final_spec = predicted_final_spec[:audio_length - 2, :]
     predicted_final_spec = self.get_data_layer().get_magnitude_spec(predicted_final_spec, is_mel=True)
     wav_summary = save_audio(
         predicted_final_spec,
