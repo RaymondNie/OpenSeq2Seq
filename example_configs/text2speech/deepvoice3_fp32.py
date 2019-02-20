@@ -82,7 +82,7 @@ base_params = {
   "batch_size_per_gpu": 16,
   "max_steps": 1000000,
   "dtype": tf.float32,
-  "max_grad_norm":1.,
+  "max_grad_norm":0.1,
   "weight_norm": True,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
@@ -130,7 +130,7 @@ base_params = {
       "attention_size": 128,
       "prenet_layers": [128, 128, 128, 128],
       "channels": 128,
-      "decoder_layers": 2,
+      "decoder_layers": 4,
       "kernel_size": 5,
       "keep_prob": keep_prob,
       "pos_rate":7.4,
