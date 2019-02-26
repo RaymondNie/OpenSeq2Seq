@@ -57,7 +57,7 @@ base_params = {
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "dataset_files": [
-      os.path.join(dataset_location, "test.csv"),
+      os.path.join(dataset_location, "train.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
@@ -76,8 +76,9 @@ base_params = {
     "duration_min":24,
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
-    "mixed_phoneme_char_prob": 0.,
-    "deepvoice": True
+    "mixed_phoneme_char_prob": 0.5,
+    "deepvoice": True,
+    "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt"
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,

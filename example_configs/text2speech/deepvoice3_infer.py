@@ -6,15 +6,49 @@ from open_seq2seq.data import Text2SpeechDataLayer
 from open_seq2seq.losses import DeepVoiceLoss
 from open_seq2seq.optimizers.lr_policies import fixed_lr, transformer_policy, exp_decay
 
+# exp 17 hparams from original set of tests
+
 base_model = DeepVoice
 dataset = "LJ"
 dataset_location = "/home/rnie/Desktop/rnie/dataset/LJSpeech"
 # dataset_location = "/data/LJSpeech"
-output_type = "mel"
-data_min = 1e-2
-trim = False
+output_type = "both"
+
+if dataset == "MAILABS":
+  trim = True
+  mag_num_feats = 401
+  train = "metadata.csv"
+  val = "val.csv"
+  batch_size = 32
+elif dataset == "LJ":
+  trim = False
+  mag_num_feats = 513
+  train = "train_32.csv"
+  val = "val_32.csv"
+  batch_size = 48
+else:
+  raise ValueError("Unknown dataset")
+
 exp_mag = False
-num_audio_features = 80
+if output_type == "magnitude":
+  num_audio_features = mag_num_feats
+  data_min = 1e-5
+elif output_type == "mel":
+  num_audio_features = 80
+  data_min = 1e-2
+elif output_type == "both":
+  num_audio_features = {
+      "mel": 80,
+      "magnitude": mag_num_feats
+  }
+  data_min = {
+      "mel": 1e-2,
+      "magnitude": 1e-5,
+  }
+  exp_mag = False
+else:
+  raise ValueError("Unknown param for output_type")
+
 '''
 batch_size == B
 emb_size == e
@@ -22,17 +56,17 @@ encoder_channels == c
 reduction_factor == r
 '''
 reduction_factor = 4
-keep_prob = 0.9
+keep_prob = 0.95
 base_params = {
   "use_horovod": False,
   "num_gpus": 1,
+  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/os2s",
   # "logdir": "/results/deepvoice3_fp32",
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/will_it_run",
-  "save_summaries_steps": 500,
-  "print_loss_steps": 500,
-  "print_samples_steps": 500,
+  "save_summaries_steps": 100,
+  "print_loss_steps": 100,
+  "print_samples_steps": 100,
   "save_checkpoint_steps": 500,
-  "save_to_tensorboard": False,
+  "save_to_tensorboard": True,
   "regularizer": tf.contrib.layers.l2_regularizer,
   "regularizer_params": {
     'scale': 1e-6
@@ -41,23 +75,25 @@ base_params = {
   "optimizer_params": {},
   "lr_policy": exp_decay,
   "lr_policy_params": {
-    "learning_rate": 1e-3,
+    "learning_rate": 5e-4,
     "decay_steps": 10000,
-    "decay_rate": 0.1,
+    "decay_rate": 0.05,
     "use_staircase_decay": False,
     "begin_decay_at": 20000,
     "min_lr": 1e-5,
-  },
-  "summaries": ["learning_rate", "gradients", "gradient_norm", "global_gradient_norm"],  
-  "batch_size_per_gpu": 16,
-  "max_steps": 200000,
+  }, 
+  "summaries": ['learning_rate', 'variables', 'gradients', 'larc_summaries',
+                'variable_norm', 'gradient_norm', 'global_gradient_norm'],
+  "batch_size_per_gpu": 1,
+  "max_steps": 1000000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
+  "weight_norm": True,
   "data_layer": Text2SpeechDataLayer,
-  "num_audio_features": num_audio_features,
   "data_layer_params": {
+    "shuffle": False,
     "dataset_files": [
-      os.path.join(dataset_location, "test.csv"),
+      os.path.join(dataset_location, "metadata.csv"),
     ],
     "dataset": dataset,
     "num_audio_features": num_audio_features,
@@ -77,14 +113,16 @@ base_params = {
     "exp_mag": exp_mag,
     "reduction_factor": reduction_factor,
     "mixed_phoneme_char_prob": 0.5,
+    "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt",
     "deepvoice": True,
-    "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt"
+    "preprocessed_numpy": False,
+    "decoder_layers": 2
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
   "encoder_params": {
       "speaker_emb": None,
-      "emb_size": 256,
+      "emb_size": 128,
       "channels": 64,
       "conv_layers": 7,
       "keep_prob": keep_prob, 
@@ -94,15 +132,23 @@ base_params = {
   "decoder": DeepVoiceDecoder,
   "decoder_params": {
       "speaker_emb": None,
-      "emb_size": 256,
+      "emb_size": 128,
       "attention_size": 128,
-      "prenet_layers": [128, 256],
-      "channels": 256,
-      "decoder_layers": 4,
+      "prenet_layers": [128, 128, 128, 128],
+      "channels": 128,
+      "decoder_layers": 2,
       "kernel_size": 5,
       "keep_prob": keep_prob,
-      "reduction_factor": reduction_factor
+      "pos_rate":7.4,
+      "converter_layers": 4,
+      "converter_kernel_size": 3,
+      "converter_channels": 512,
+      "monotonic_alignment": [True, True]
   },
   # Loss params
-  "loss": DeepVoiceLoss
+  "loss": DeepVoiceLoss,
+  "loss_params": {
+    "l1_loss": True,
+    "masked_loss_weight": 0.5
+  }
 }
