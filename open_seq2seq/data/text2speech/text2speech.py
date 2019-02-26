@@ -416,8 +416,9 @@ class Text2SpeechDataLayer(DataLayer):
 
     if self.params['mode'] != 'infer':
       if self.params['deepvoice'] == True:
+        #TODO: FIX THIS BUG
         self._input_tensors['target_tensors'] = [
-            mel_spec, stop_token_target, spec_length, mag_spec
+            spec, stop_token_target, spec_length
         ]
       else:
         self._input_tensors['target_tensors'] = [
@@ -485,7 +486,7 @@ class Text2SpeechDataLayer(DataLayer):
     else:
       features_type = self.params['output_type']
 
-    if self.params['preprocessed_numpy'] == False:
+    if self.params.get('preprocessed_numpy', False) == False:
       if audio_filename in self.spec_dict:
         spectrogram = self.spec_dict[audio_filename]
       else:
