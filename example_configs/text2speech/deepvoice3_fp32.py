@@ -56,10 +56,10 @@ encoder_channels == c
 reduction_factor == r
 '''
 reduction_factor = 4
-keep_prob = 0.95
+keep_prob = 0.9
 base_params = {
-  "use_horovod": False,
-  "num_gpus": 1,
+  "use_horovod": True,
+  # "num_gpus": 1,
   # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/wn3",
   "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 100,

@@ -13,7 +13,7 @@ from open_seq2seq.models.text2speech import plot_spectrograms, save_audio
 args = [
         "--config_file=example_configs/text2speech/deepvoice3_infer.py",
         "--mode=interactive_infer",
-        "--logdir=fszf/logs/",
+        "--logdir=os2s/logs/",
 ]
 
 # A simpler version of what run.py does. It returns the created model and its 
@@ -62,7 +62,7 @@ decoder_layers = config_params['decoder_params']['decoder_layers']
 pad_to = model_T2S.get_data_layer().params.get('pad_to', 8)
 
 # Initial text values with proper padding
-text = "something went wrong"
+text = "Testing one two three"
 text_length = len(text)
 text_length += pad_to - ((text_length + 2) % pad_to) + 2
 
