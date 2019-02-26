@@ -60,7 +60,7 @@ keep_prob = 0.95
 base_params = {
   "use_horovod": False,
   "num_gpus": 1,
-  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/fszf",
+  "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/os2s",
   # "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
@@ -88,7 +88,7 @@ base_params = {
   "max_steps": 1000000,
   "dtype": tf.float32,
   "max_grad_norm":1.,
-  "weight_norm": False,
+  "weight_norm": True,
   "data_layer": Text2SpeechDataLayer,
   "data_layer_params": {
     "shuffle": False,
@@ -143,7 +143,7 @@ base_params = {
       "converter_layers": 4,
       "converter_kernel_size": 3,
       "converter_channels": 512,
-      "monotonic_alignment": [False, False]
+      "monotonic_alignment": [True, True]
   },
   # Loss params
   "loss": DeepVoiceLoss,
