@@ -447,7 +447,6 @@ class Text2SpeechDataLayer(DataLayer):
         self.params['num_audio_features'],
         features_type=features_type,
         n_fft=self._n_fft,
-        hop_length=600,
         mag_power=self.params.get('mag_power', 2),
         feature_normalize=self.params["feature_normalize"],
         mean=self.params.get("feature_normalize_mean", 0.),
