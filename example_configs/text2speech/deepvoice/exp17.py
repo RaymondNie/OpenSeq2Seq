@@ -79,7 +79,7 @@ base_params = {
     "mixed_phoneme_char_prob": 0.5,
     "deepvoice": True,
     "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt",
-    "preprocessed_numpy": True
+    "preprocessed_numpy": False
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
