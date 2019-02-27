@@ -60,7 +60,6 @@ keep_prob = 0.9
 base_params = {
   "use_horovod": True,
   # "num_gpus": 1,
-  # "logdir": "/home/rnie/Desktop/rnie/OpenSeq2Seq/wn3",
   "logdir": "/results/deepvoice3_fp32",
   "save_summaries_steps": 100,
   "print_loss_steps": 100,
@@ -110,7 +109,7 @@ base_params = {
     "mixed_phoneme_char_prob": 0.5,
     "arpabet_vocab_file": "open_seq2seq/test_utils/arpabet_vocab.txt",
     "deepvoice": True,
-    "preprocessed_numpy": True
+    "preprocessed_numpy": False
   },
   # Encoder params
   "encoder": DeepVoiceEncoder,
