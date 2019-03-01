@@ -234,8 +234,8 @@ class DeepVoiceDecoder(Decoder):
       # [B, Ty, n]
       mel_inputs = input_dict['target_tensors'][0] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['mel_target']
-      # mel_inputs = tf.pad(mel_inputs, [[0,0],[1,0],[0,0]])
-      # mel_inputs = mel_inputs[:,:-1,:]
+      mel_inputs = tf.pad(mel_inputs, [[0,0],[1,0],[0,0]])
+      mel_inputs = mel_inputs[:,:-1,:]
       # [B]
       spec_lens = input_dict['target_tensors'][2] if 'target_tensors' in \
                                                     input_dict else input_dict['encoder_output']['spec_lens']

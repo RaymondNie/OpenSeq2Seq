@@ -64,29 +64,14 @@ class DeepVoiceLoss(Loss):
     batch_size = tf.shape(mel_target)[0]
     max_length = tf.to_int32(tf.shape(mel_target)[1])
     num_mels = tf.shape(post_net_predictions)[2]
-    # Slice predictions such that we are trying to predict the next timestep
 
     final_output_mask = tf.sequence_mask(spec_lengths, max_length)
 
-    # Create mask to set last predicted values to 0
-    remove_last_mask = tf.sequence_mask(spec_lengths-1, max_length)
-    remove_last_mask = tf.logical_xor(final_output_mask, remove_last_mask)
-    mel_mask = tf.tile(tf.expand_dims(remove_last_mask, 2), [1, 1, num_mels])
-
-    mel_mask_values = tf.zeros_like(post_net_predictions, tf.float32)
-    post_net_predictions = tf.where(mel_mask, mel_mask_values, post_net_predictions)
-    mel_target = tf.pad(mel_target[:,1:,:], [[0,0],[0,1],[0,0]])
-
     if self._both:
       mag_pred = input_dict['decoder_output']['outputs'][6]
-      num_mags = tf.shape(mag_pred)[2]
-      mag_mask = tf.tile(tf.expand_dims(remove_last_mask,2), [1, 1, num_mags])
-      mag_mask_values = tf.zeros_like(mag_mask, tf.float32)
-      mag_pred = tf.where(mag_mask, mag_mask_values, mag_pred)
       mag_target = input_dict['target_tensors'][3]
-      mag_target = tf.pad(mag_target[:,1:,:], [[0,0],[0,1],[0,0]])
 
-    mask = tf.sequence_mask(lengths=spec_lengths-1, maxlen=max_length, dtype=tf.float32)
+    mask = tf.sequence_mask(lengths=spec_lengths, maxlen=max_length, dtype=tf.float32)
     mask = tf.expand_dims(mask, axis=-1)
 
     # Apply L1 Loss for spectrogram prediction and cross entropy for stop token
