@@ -13,8 +13,8 @@ activation = tf.nn.relu
 
 residual = True
 residual_dense = True
-repeat_1 = 4
-repeat_2 = 4
+repeat_1 = 5
+repeat_2 = 5
 dropout_factor = 1.
 training_set = "libri"
 data_aug_enable = False
