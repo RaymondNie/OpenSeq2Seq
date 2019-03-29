@@ -16,7 +16,7 @@ residual_dense = True
 repeat_1 = 5
 repeat_2 = 5
 dropout_factor = 1.
-training_set = "libri"
+training_set = "combined"
 data_aug_enable = False
 
 if training_set == "libri":
@@ -26,10 +26,10 @@ if training_set == "libri":
             "/data/librispeech/librivox-train-other-500.csv"]
 elif training_set == "combined":
     dataset_files = [
+            "/ws-demo/librispeech_synth/metadata.csv",
             "/data/librispeech/librivox-train-clean-100.csv",
             "/data/librispeech/librivox-train-clean-360.csv",
-            "/data/librispeech/librivox-train-other-500.csv",
-            "/data/speech/LibriSpeech/LibriSpeech/data_syn.txt"]
+            "/data/librispeech/librivox-train-other-500.csv"]
 elif training_set == "MAILABS_LibriSpeech":
     dataset_files = [
             "/data/librispeech/librivox-train-clean-100.csv",
