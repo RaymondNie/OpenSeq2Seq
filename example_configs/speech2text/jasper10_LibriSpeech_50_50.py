@@ -26,7 +26,7 @@ if training_set == "libri":
             "/data/librispeech/librivox-train-other-500.csv"]
 elif training_set == "combined":
     dataset_files = [
-            "/ws-demo/librispeech_synth/metadata_50_50.csv",
+            "/ws-demo/librispeech_synth/50_50_metadata.csv",
             "/data/librispeech/librivox-train-clean-100.csv",
             "/data/librispeech/librivox-train-clean-360.csv",
             "/data/librispeech/librivox-train-other-500.csv"]
