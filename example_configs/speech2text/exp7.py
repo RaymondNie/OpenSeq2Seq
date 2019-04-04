@@ -14,8 +14,8 @@ activation = tf.nn.relu
 
 residual = True
 residual_dense = True
-repeat_1 = 4
-repeat_2 = 4
+repeat_1 = 5
+repeat_2 = 5
 dropout_factor = 1.
 training_set = "combined"
 data_aug_enable = False
@@ -38,7 +38,7 @@ elif training_set == "MAILABS_LibriSpeech":
             "/data/librispeech/librivox-train-other-500.csv",
             "/mnt/hdd/data/MAILABS/train.csv"]
 elif training_set == "syn":
-    dataset_files = ["/data/speech/LibriSpeech/LibriSpeech/data_syn.txt"]
+    dataset_files = ["/ws-demo/synthetic_data_job_10/processed/metadata.csv"]
 elif training_set == "combined_33_66":
     dataset_files = [
             "/data/librispeech/librivox-train-clean-100.csv",
@@ -87,12 +87,9 @@ base_params = {
         "min_lr": 1e-5,
         "power": 2.0,
     },
-
-    "max_grad_norm": 1.,
-
-    # "larc_params": {
-    #     "larc_eta": 0.001,
-    # },
+    "larc_params": {
+        "larc_eta": 0.001,
+    },
 
     # "regularizer": tf.contrib.layers.l2_regularizer,
     # "regularizer_params": {
@@ -235,12 +232,13 @@ base_params = {
         "input_type": "logfbank",
         "vocab_file": "open_seq2seq/test_utils/toy_speech_data/vocab.txt",
         "norm_per_feature": True,
-        "window_type": "hamming",
+        "window": "hanning",
         "syn_enable": False,
         "syn_subdirs": ["1_50", "2_44", "3_47", "50", "46", "48"],
         "precompute_mel_basis": True,
         "sample_freq": 16000,
-        "pad_to": 16
+        "pad_to": 16,
+        "dither": 1e-5,
     },
 }
 
@@ -251,7 +249,6 @@ train_params = {
         "dataset_files": dataset_files,
         "max_duration": 16.7,
         "shuffle": True,
-        "dither": 1e-5,
     },
 }
 
