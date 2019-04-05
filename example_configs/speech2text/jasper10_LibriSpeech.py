@@ -16,7 +16,7 @@ residual_dense = True
 repeat_1 = 5
 repeat_2 = 5
 dropout_factor = 1.
-training_set = "syn"
+training_set = "libri"
 data_aug_enable = False
 
 if training_set == "libri":
