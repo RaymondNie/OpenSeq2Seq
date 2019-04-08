@@ -2,3 +2,5 @@ exp 2: pure synth novograd
 exp 3: pure synth
 exp 4: 50/50 
 exp 5: 50/50 novograd
+exp 6: 20/80 
+exp 7: 20/80 novograd
